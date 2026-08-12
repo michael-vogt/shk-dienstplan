@@ -256,10 +256,6 @@ td.closed {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.a-absent {
-  background: #ded9e6;
-  color: #4a3a63;
-}
 
 .error-count {
   font-size: 0.72rem;
@@ -271,6 +267,35 @@ td.closed {
 .other-count {
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+.week-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* Die laufende Woche bleibt auch unausgewählt erkennbar: Rahmen und Punkt
+   in Akzentfarbe, damit sie sich vom aktiven Reiter unterscheidet. */
+.weeks button.current {
+  border-color: var(--accent);
+}
+.current-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.weeks button.current.active .current-dot {
+  background: #fff;
+}
+.grid thead th.today {
+  background: #e8eff7;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.scope-note {
+  font-size: 0.85rem;
 }
 
 .print-weeks {

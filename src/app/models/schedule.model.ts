@@ -28,6 +28,18 @@ export const AVAILABILITY_LABELS: Record<Availability, string> = {
   no: 'Nein',
 };
 
+/**
+ * Ein Dienstplan ist entweder ein Semesterplan oder ein Ferienplan.
+ * Semester: genau ein Wochenplan, wiederkehrend, ohne Datumsbezug.
+ * Ferien:   ein Wochenplan je Kalenderwoche im gewählten Zeitraum.
+ */
+export type PlanMode = 'semester' | 'break';
+
+export const PLAN_MODE_LABELS: Record<PlanMode, string> = {
+  semester: 'Semester',
+  break: 'Vorlesungsfreie Zeit',
+};
+
 /** Datum im Format `YYYY-MM-DD`, immer als lokaler Kalendertag interpretiert. */
 export type IsoDate = string;
 
@@ -35,6 +47,14 @@ export interface Period {
   start: IsoDate;
   end: IsoDate;
 }
+
+/**
+ * Schlüssel eines Wochenplans: im Semestermodus die Konstante `semester`,
+ * im Ferienmodus der Montag der Kalenderwoche.
+ */
+export type WeekKey = string;
+
+export const SEMESTER_WEEK: WeekKey = 'semester';
 
 export interface OpeningHours {
   weekday: Weekday;
@@ -45,48 +65,37 @@ export interface OpeningHours {
   end: number;
 }
 
-/**
- * Abweichung an einem einzelnen Termin: Feiertag, Brückentag, verkürzte
- * Öffnung in der vorlesungsfreien Zeit. Ohne `start`/`end` gilt der
- * Wochentagsstandard, `closed` schlägt beides.
- */
-export interface DateException {
-  date: IsoDate;
-  closed: boolean;
-  start?: number;
-  end?: number;
-  note?: string;
-}
-
-/** Abwesenheit einer Hilfskraft, beide Grenzen inklusive. */
-export interface Absence {
-  id: string;
-  assistantId: string;
-  from: IsoDate;
-  to: IsoDate;
-  reason?: string;
-}
-
-/** Schlüssel eines konkreten Zeitslots, Format `YYYY-MM-DDTHH`. */
-export type SlotKey = string;
-
-/** Schlüssel im Wochenraster der Verfügbarkeiten, Format `weekday-hour`. */
+/** Stelle im Wochenraster, unabhängig von der Woche: `weekday-hour`. */
 export type WeekdaySlotKey = string;
 
-export function slotKey(date: IsoDate, hour: number): SlotKey {
-  return `${date}T${String(hour).padStart(2, '0')}`;
-}
+/** Zeitslot innerhalb eines bestimmten Wochenplans: `weekKey|weekday-hour`. */
+export type SlotKey = string;
 
 export function weekdaySlotKey(weekday: Weekday, hour: number): WeekdaySlotKey {
   return `${weekday}-${hour}`;
 }
 
+export function slotKey(week: WeekKey, weekday: Weekday, hour: number): SlotKey {
+  return `${week}|${weekdaySlotKey(weekday, hour)}`;
+}
+
 export interface Slot {
-  date: IsoDate;
+  week: WeekKey;
   weekday: Weekday;
   hour: number;
   key: SlotKey;
   weekdayKey: WeekdaySlotKey;
+  /** Konkreter Kalendertag im Ferienmodus, im Semestermodus null. */
+  date: IsoDate | null;
+}
+
+/** Ein Wochenplan: im Semestermodus der einzige, im Ferienmodus einer von vielen. */
+export interface WeekPlan {
+  key: WeekKey;
+  label: string;
+  monday: IsoDate | null;
+  /** Kalendertage der geöffneten Wochentage, im Semestermodus leer. */
+  dates: { weekday: Weekday; date: IsoDate }[];
 }
 
 export interface Assistant {
@@ -97,19 +106,16 @@ export interface Assistant {
 }
 
 export interface ScheduleState {
-  version: 2;
+  version: 4;
   title: string;
+  mode: PlanMode;
+  /** Nur im Ferienmodus ausgewertet. */
   period: Period;
   openingHours: OpeningHours[];
-  exceptions: DateException[];
   assistants: Assistant[];
-  absences: Absence[];
-  /**
-   * assistantId -> weekdaySlotKey -> Antwort. Bewusst wochentagsbasiert: die
-   * Hilfskräfte geben ihre Zeiten wiederkehrend an, nicht je Kalendertag.
-   */
-  availability: Record<string, Record<WeekdaySlotKey, Availability>>;
-  /** slotKey (konkreter Termin) -> eingeteilte assistantIds. */
+  /** assistantId -> SlotKey -> Antwort. */
+  availability: Record<string, Record<SlotKey, Availability>>;
+  /** SlotKey -> eingeteilte assistantIds. */
   assignments: Record<SlotKey, string[]>;
 }
 
@@ -119,6 +125,7 @@ export interface ScheduleWarning {
   level: WarningLevel;
   message: string;
   slotKey?: SlotKey;
+  week?: WeekKey;
   assistantId?: string;
 }
 
@@ -188,12 +195,4 @@ export function formatDateLong(iso: IsoDate): string {
 
 export function formatHour(hour: number): string {
   return `${String(hour).padStart(2, '0')}:00`;
-}
-
-export function formatSlot(slot: Slot): string {
-  return `${WEEKDAY_SHORT[slot.weekday]} ${formatDate(slot.date)} ${formatHour(slot.hour)}`;
-}
-
-export function isWithin(iso: IsoDate, from: IsoDate, to: IsoDate): boolean {
-  return iso >= from && iso <= to;
 }

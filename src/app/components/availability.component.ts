@@ -1,14 +1,18 @@
-import { Component, computed, inject, linkedSignal } from '@angular/core';
+import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import {
   AVAILABILITY_LABELS,
   Assistant,
   Availability,
-  WEEKDAYS,
+  IsoDate,
+  SEMESTER_WEEK,
   WEEKDAY_SHORT,
+  WeekKey,
+  WeekPlan,
   Weekday,
+  formatDate,
   formatDateLong,
   formatHour,
-  weekdaySlotKey,
+  slotKey,
 } from '../models/schedule.model';
 import { ScheduleStore } from '../services/schedule-store.service';
 
@@ -19,6 +23,7 @@ import { ScheduleStore } from '../services/schedule-store.service';
 })
 export class AvailabilityComponent {
   readonly store = inject(ScheduleStore);
+  readonly formatDate = formatDate;
   readonly formatDateLong = formatDateLong;
 
   /**
@@ -34,37 +39,27 @@ export class AvailabilityComponent {
     },
   });
 
-  /** Nur Wochentage, an denen der Standard eine Öffnung vorsieht. */
-  readonly openWeekdays = computed<Weekday[]>(() =>
-    this.store
-      .openingHours()
-      .filter((o) => o.open)
-      .map((o) => o.weekday),
-  );
-
-  /** Stundenzeilen aus der Spannweite des Wochentagsstandards. */
-  readonly hourRows = computed<number[]>(() => {
-    const open = this.store.openingHours().filter((o) => o.open);
-    if (!open.length) return [];
-    const start = Math.min(...open.map((o) => o.start));
-    const end = Math.max(...open.map((o) => o.end));
-    return Array.from({ length: end - start }, (_, i) => start + i);
+  /**
+   * Angezeigter Wochenplan. Im Semestermodus gibt es nur einen, im Ferienmodus
+   * beantwortet jede Hilfskraft jede Woche einzeln.
+   */
+  readonly selectedWeek = linkedSignal<WeekPlan[], WeekKey>({
+    source: this.store.weekPlans,
+    computation: (plans, previous) => {
+      const previousKey = previous?.value;
+      if (previousKey && plans.some((p) => p.key === previousKey)) return previousKey;
+      return plans[0]?.key ?? SEMESTER_WEEK;
+    },
   });
 
-  /** Zahl der Zellen im Wochenraster, Bezugsgröße für den Beantwortungsstand. */
-  readonly weekdaySlotCount = computed(() =>
-    this.store
-      .openingHours()
-      .filter((o) => o.open)
-      .reduce((sum, o) => sum + (o.end - o.start), 0),
+  readonly currentPlan = computed<WeekPlan | null>(
+    () => this.store.weekPlans().find((p) => p.key === this.selectedWeek()) ?? null,
   );
 
-  readonly absencesOfSelected = computed(() => {
-    const id = this.selectedId();
-    // absences() lesen, damit das computed auf Änderungen reagiert.
-    this.store.absences();
-    return id ? this.store.absencesOf(id) : [];
-  });
+  /** Wochenpläne, aus denen sich Angaben übernehmen lassen. */
+  readonly otherWeeks = computed<WeekPlan[]>(() =>
+    this.store.weekPlans().filter((p) => p.key !== this.selectedWeek()),
+  );
 
   short(weekday: Weekday): string {
     return WEEKDAY_SHORT[weekday];
@@ -74,15 +69,23 @@ export class AvailabilityComponent {
     return formatHour(hour) + '–' + formatHour(hour + 1);
   }
 
+  /** Kalendertag der Spalte — nur im Ferienmodus vorhanden. */
+  dateOf(weekday: Weekday): IsoDate | null {
+    return this.store.dateOf(this.selectedWeek(), weekday);
+  }
+
   isOpen(weekday: Weekday, hour: number): boolean {
-    const day = this.store.openingHours().find((o) => o.weekday === weekday);
-    return !!day?.open && hour >= day.start && hour < day.end;
+    return this.store.isOpenIn(this.selectedWeek(), weekday, hour);
+  }
+
+  key(weekday: Weekday, hour: number): string {
+    return slotKey(this.selectedWeek(), weekday, hour);
   }
 
   answer(weekday: Weekday, hour: number): Availability | undefined {
     const id = this.selectedId();
     if (!id) return undefined;
-    return this.store.getAvailability(id, weekdaySlotKey(weekday, hour));
+    return this.store.getAvailability(id, this.key(weekday, hour));
   }
 
   cellLabel(weekday: Weekday, hour: number): string {
@@ -100,49 +103,45 @@ export class AvailabilityComponent {
   }
 
   answeredCount(assistantId: string): number {
-    let count = 0;
-    for (const day of this.store.openingHours()) {
-      if (!day.open) continue;
-      for (let hour = day.start; hour < day.end; hour++) {
-        if (this.store.getAvailability(assistantId, weekdaySlotKey(day.weekday, hour))) count++;
-      }
-    }
-    return count;
+    return this.store.answeredCount(assistantId, this.selectedWeek());
   }
 
   cycle(weekday: Weekday, hour: number): void {
     const id = this.selectedId();
-    if (id) this.store.cycleAvailability(id, weekdaySlotKey(weekday, hour));
+    if (id) this.store.cycleAvailability(id, this.key(weekday, hour));
   }
 
   setAll(value: Availability | undefined): void {
     const id = this.selectedId();
     if (!id) return;
-    this.store.setAvailabilityForSlots(id, this.allKeys(), value);
+    this.store.setAvailabilityForSlots(
+      id,
+      this.store.slotsOfWeek(this.selectedWeek()).map((s) => s.key),
+      value,
+    );
   }
 
   setColumn(weekday: Weekday, value: Availability): void {
     const id = this.selectedId();
     if (!id) return;
-    const day = this.store.openingHours().find((o) => o.weekday === weekday);
-    if (!day?.open) return;
-    const keys: string[] = [];
-    for (let hour = day.start; hour < day.end; hour++) {
-      keys.push(weekdaySlotKey(weekday, hour));
-    }
-    this.store.setAvailabilityForSlots(id, keys, value);
+    this.store.setAvailabilityForSlots(
+      id,
+      this.store
+        .slotsOfWeek(this.selectedWeek())
+        .filter((s) => s.weekday === weekday)
+        .map((s) => s.key),
+      value,
+    );
   }
 
-  private allKeys(): string[] {
-    const keys: string[] = [];
-    for (const weekday of WEEKDAYS) {
-      const day = this.store.openingHours().find((o) => o.weekday === weekday);
-      if (!day?.open) continue;
-      for (let hour = day.start; hour < day.end; hour++) {
-        keys.push(weekdaySlotKey(weekday, hour));
-      }
-    }
-    return keys;
+  /** Übernimmt die Angaben einer anderen Woche für die gewählte Hilfskraft. */
+  copyFrom(event: Event): void {
+    const source = (event.target as HTMLSelectElement).value;
+    (event.target as HTMLSelectElement).value = '';
+    const id = this.selectedId();
+    if (!source || !id) return;
+    const copied = this.store.copyAvailability(id, source, this.selectedWeek());
+    if (!copied) alert('In dieser Woche ist für die gewählte Hilfskraft nichts eingetragen.');
   }
 
   add(input: HTMLInputElement): void {
@@ -156,15 +155,5 @@ export class AvailabilityComponent {
     if (confirm(name + ' entfernen? Verfügbarkeiten und Einteilungen gehen dabei verloren.')) {
       this.store.removeAssistant(id);
     }
-  }
-
-  addAbsence(from: HTMLInputElement, to: HTMLInputElement, reason: HTMLInputElement): void {
-    const id = this.selectedId();
-    if (!id || !from.value) return;
-    // Ein einzelner Tag genügt: fehlt „bis", gilt der Starttag.
-    this.store.addAbsence(id, from.value, to.value || from.value, reason.value);
-    from.value = '';
-    to.value = '';
-    reason.value = '';
   }
 }

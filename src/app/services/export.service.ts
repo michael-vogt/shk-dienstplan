@@ -2,12 +2,11 @@ import { Service, inject } from '@angular/core';
 import {
   AVAILABILITY_LABELS,
   Availability,
+  PLAN_MODE_LABELS,
   WEEKDAY_LABELS,
   WEEKDAY_SHORT,
-  WEEKDAYS,
   formatDateLong,
   formatHour,
-  weekdaySlotKey,
 } from '../models/schedule.model';
 import { ScheduleStore } from './schedule-store.service';
 
@@ -30,86 +29,89 @@ export class ExportService {
   }
 
   /**
-   * Dienstplan als Terminliste. Über einen mehrwöchigen Zeitraum ist eine
-   * flache Liste in Excel besser filter- und sortierbar als ein Wochenraster.
+   * Dienstplan als flache Liste. Im Ferienplan steht je Zeile ein konkreter
+   * Termin, im Semesterplan eine Stelle der Musterwoche — beides lässt sich
+   * in Excel filtern und sortieren.
    */
   exportRosterCsv(): void {
     const assistants = this.store.assistants();
-    const rows: string[][] = [['Datum', 'Wochentag', 'Von', 'Bis', 'Hilfskräfte', 'Anzahl']];
+    const breakMode = this.store.isBreakMode();
+    const header = breakMode
+      ? ['Woche', 'Datum', 'Wochentag', 'Von', 'Bis', 'Hilfskräfte', 'Anzahl']
+      : ['Wochentag', 'Von', 'Bis', 'Hilfskräfte', 'Anzahl'];
+    const rows: string[][] = [header];
 
-    for (const slot of this.store.slots()) {
-      const names = this.store
-        .assignedTo(slot.key)
-        .map((id) => assistants.find((a) => a.id === id)?.name)
-        .filter((name): name is string => !!name);
-      rows.push([
-        formatDateLong(slot.date),
-        WEEKDAY_LABELS[slot.weekday],
-        formatHour(slot.hour),
-        formatHour(slot.hour + 1),
-        names.join(', '),
-        String(names.length),
-      ]);
+    for (const plan of this.store.weekPlans()) {
+      for (const slot of this.store.slotsOfWeek(plan.key)) {
+        const names = this.store
+          .assignedTo(slot.key)
+          .map((id) => assistants.find((a) => a.id === id)?.name)
+          .filter((name): name is string => !!name);
+        const tail = [
+          WEEKDAY_LABELS[slot.weekday],
+          formatHour(slot.hour),
+          formatHour(slot.hour + 1),
+          names.join(', '),
+          String(names.length),
+        ];
+        rows.push(
+          breakMode ? [plan.label, slot.date ? formatDateLong(slot.date) : '', ...tail] : tail,
+        );
+      }
     }
 
     rows.push([]);
-    rows.push(['Hilfskraft', 'Eingeteilte Stunden']);
+    rows.push([
+      'Hilfskraft',
+      breakMode ? 'Eingeteilte Stunden im Zeitraum' : 'Eingeteilte Stunden je Woche',
+    ]);
     const hours = this.store.hoursByAssistant();
     for (const assistant of assistants) {
       rows.push([assistant.name, String(hours[assistant.id] ?? 0)]);
     }
 
-    this.download(this.toCsvBlob(rows), this.fileName('csv', 'shk-dienstplan'));
+    this.download(this.toCsvBlob(rows), this.fileName('csv', 'dienstplan'));
   }
 
-  /** Verfügbarkeitsmatrix (wochentagsbasiert) samt Abwesenheiten. */
+  /**
+   * Verfügbarkeiten als Matrix: eine Zeile je Hilfskraft und Wochenplan.
+   * Im Semesterplan bleibt es bei einer Zeile pro Person.
+   */
   exportAvailabilityCsv(): void {
-    const hours = this.hourRange();
-    const columns: { key: string; label: string }[] = [];
-    for (const weekday of WEEKDAYS) {
+    const breakMode = this.store.isBreakMode();
+    const weekdays = this.store.openWeekdays();
+    const hours = this.store.hourRows();
+
+    const columns: { weekday: number; hour: number; label: string }[] = [];
+    for (const weekday of weekdays) {
       for (const hour of hours) {
         columns.push({
-          key: weekdaySlotKey(weekday, hour),
+          weekday,
+          hour,
           label: `${WEEKDAY_SHORT[weekday]} ${formatHour(hour)}`,
         });
       }
     }
 
-    const rows: string[][] = [['Hilfskraft', ...columns.map((c) => c.label)]];
-    for (const assistant of this.store.assistants()) {
-      const row = [assistant.name];
-      for (const column of columns) {
-        const answer = this.store.getAvailability(assistant.id, column.key);
-        row.push(answer ? AVAILABILITY_LABELS[answer as Availability] : '');
-      }
-      rows.push(row);
-    }
+    const rows: string[][] = [
+      breakMode
+        ? ['Hilfskraft', 'Woche', ...columns.map((c) => c.label)]
+        : ['Hilfskraft', ...columns.map((c) => c.label)],
+    ];
 
-    const absences = this.store.absences();
-    if (absences.length) {
-      rows.push([]);
-      rows.push(['Abwesenheiten', 'Von', 'Bis', 'Grund']);
-      for (const absence of absences) {
-        const name = this.store.assistants().find((a) => a.id === absence.assistantId)?.name ?? '';
-        rows.push([
-          name,
-          formatDateLong(absence.from),
-          formatDateLong(absence.to),
-          absence.reason ?? '',
-        ]);
+    for (const assistant of this.store.assistants()) {
+      for (const plan of this.store.weekPlans()) {
+        const row = breakMode ? [assistant.name, plan.label] : [assistant.name];
+        for (const column of columns) {
+          const key = `${plan.key}|${column.weekday}-${column.hour}`;
+          const answer = this.store.getAvailability(assistant.id, key);
+          row.push(answer ? AVAILABILITY_LABELS[answer as Availability] : '');
+        }
+        rows.push(row);
       }
     }
 
     this.download(this.toCsvBlob(rows), this.fileName('csv', 'verfuegbarkeiten'));
-  }
-
-  /** Spannweite aller Öffnungszeiten, damit die Matrix alle Stunden abdeckt. */
-  private hourRange(): number[] {
-    const open = this.store.openingHours().filter((o) => o.open);
-    if (!open.length) return [];
-    const start = Math.min(...open.map((o) => o.start));
-    const end = Math.max(...open.map((o) => o.end));
-    return Array.from({ length: end - start }, (_, i) => start + i);
   }
 
   /**
@@ -126,9 +128,10 @@ export class ExportService {
     return value;
   }
 
-  private fileName(extension: string, prefix = 'shk-dienstplan-daten'): string {
+  private fileName(extension: string, prefix = 'dienstplan-daten'): string {
     const date = new Date().toISOString().slice(0, 10);
-    return prefix + '-' + date + '.' + extension;
+    const mode = PLAN_MODE_LABELS[this.store.mode()] === 'Semester' ? 'semester' : 'ferien';
+    return `${prefix}-${mode}-${date}.${extension}`;
   }
 
   private download(blob: Blob, fileName: string): void {

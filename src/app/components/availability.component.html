@@ -2,8 +2,12 @@
   <header class="panel-head">
     <h2>Verfügbarkeiten</h2>
     <p class="hint">
-      Gilt wiederkehrend für jeden Wochentag im Zeitraum. Klick auf eine Stunde wechselt:
-      offen → Ja → Wenn es sein muss → Nein. Einzelne Ausfälle unten als Abwesenheit eintragen.
+      Klick auf eine Stunde wechselt: offen → Ja → Wenn es sein muss → Nein.
+      @if (store.isBreakMode()) {
+        Im Ferienplan wird jede Kalenderwoche einzeln beantwortet.
+      } @else {
+        Die Angaben gelten wiederkehrend für jede Woche des Semesters.
+      }
     </p>
   </header>
 
@@ -15,7 +19,7 @@
         placeholder="Name der Hilfskraft"
         (keydown.enter)="add(nameInput)"
       />
-      <button type="button" (click)="add(nameInput)">Hinzufügen</button>
+      <button type="button" class="btn" (click)="add(nameInput)">Hinzufügen</button>
     </div>
 
     @if (store.assistants().length) {
@@ -30,7 +34,7 @@
               (click)="selectedId.set(assistant.id)"
             >
               {{ assistant.name }}
-              <span class="count">{{ answeredCount(assistant.id) }}/{{ weekdaySlotCount() }}</span>
+              <span class="count">{{ answeredCount(assistant.id) }}/{{ store.slotsPerWeek() }}</span>
             </button>
             <button
               type="button"
@@ -48,11 +52,47 @@
 
   @if (!store.assistants().length) {
     <p class="empty">Erst eine Hilfskraft anlegen, dann lassen sich die Zeiten eintragen.</p>
-  } @else if (!hourRows().length) {
-    <p class="empty">Noch keine Öffnungszeiten festgelegt — Schritt 1 fehlt.</p>
+  } @else if (!store.weekPlans().length) {
+    <p class="empty">Kein Wochenplan im Zeitraum — Schritt 1 prüfen.</p>
   } @else {
+    @if (store.isBreakMode()) {
+      <nav class="weeks">
+        @for (plan of store.weekPlans(); track plan.key) {
+          <button
+            type="button"
+            [class.active]="plan.key === selectedWeek()"
+            (click)="selectedWeek.set(plan.key)"
+          >
+            {{ plan.label }}
+            @if (plan.monday) {
+              <span class="week-range">ab {{ formatDate(plan.monday) }}</span>
+            }
+          </button>
+        }
+      </nav>
+
+      @if (otherWeeks().length) {
+        <div class="week-tools">
+          <label>
+            Angaben übernehmen aus
+            <select (change)="copyFrom($event)">
+              <option value="">– Woche wählen –</option>
+              @for (other of otherWeeks(); track other.key) {
+                <option [value]="other.key">{{ other.label }}</option>
+              }
+            </select>
+          </label>
+          <span class="scope-note">gilt für die gerade gewählte Hilfskraft</span>
+        </div>
+      }
+    }
+
     <div class="bulk">
-      Ganze Woche:
+      @if (store.isBreakMode()) {
+        Diese Woche:
+      } @else {
+        Ganze Woche:
+      }
       <button type="button" class="ghost" (click)="setAll('yes')">Ja</button>
       <button type="button" class="ghost" (click)="setAll('ifNeeded')">Wenn es sein muss</button>
       <button type="button" class="ghost" (click)="setAll('no')">Nein</button>
@@ -64,9 +104,12 @@
         <thead>
         <tr>
           <th class="corner">Uhrzeit</th>
-          @for (day of openWeekdays(); track day) {
+          @for (day of store.openWeekdays(); track day) {
             <th>
               {{ short(day) }}
+              @if (dateOf(day); as date) {
+                <span class="col-date">{{ formatDate(date) }}</span>
+              }
               <button type="button" class="col-action" (click)="setColumn(day, 'yes')">
                 alle Ja
               </button>
@@ -75,10 +118,10 @@
         </tr>
         </thead>
         <tbody>
-          @for (hour of hourRows(); track hour) {
+          @for (hour of store.hourRows(); track hour) {
             <tr>
               <th scope="row" class="time">{{ time(hour) }}</th>
-              @for (day of openWeekdays(); track day) {
+              @for (day of store.openWeekdays(); track day) {
                 @if (isOpen(day, hour)) {
                   <td>
                     <button
@@ -106,43 +149,5 @@
       <li><span class="swatch state-no"></span> Nein</li>
       <li><span class="swatch state-unset"></span> Noch offen</li>
     </ul>
-
-    <h3 class="sub">Abwesenheiten</h3>
-    <p class="hint">
-      Überschreibt die Wochentagsantwort an diesen Terminen — für Urlaub, Klausuren oder Krankheit.
-    </p>
-
-    <div class="add-absence">
-      <input #absenceFrom type="date" aria-label="Abwesend von" />
-      <input #absenceTo type="date" aria-label="Abwesend bis" />
-      <input #absenceReason type="text" placeholder="Grund (optional)" />
-      <button type="button" (click)="addAbsence(absenceFrom, absenceTo, absenceReason)">
-        Eintragen
-      </button>
-    </div>
-
-    @if (absencesOfSelected().length) {
-      <ul class="absences">
-        @for (absence of absencesOfSelected(); track absence.id) {
-          <li>
-            <span class="range">
-              {{ formatDateLong(absence.from) }}
-              @if (absence.to !== absence.from) {
-                – {{ formatDateLong(absence.to) }}
-              }
-            </span>
-            @if (absence.reason) {
-              <span class="note">{{ absence.reason }}</span>
-            }
-            <span class="spacer"></span>
-            <button type="button" class="ghost" (click)="store.removeAbsence(absence.id)">
-              Entfernen
-            </button>
-          </li>
-        }
-      </ul>
-    } @else {
-      <p class="empty">Keine Abwesenheiten eingetragen.</p>
-    }
   }
 </section>

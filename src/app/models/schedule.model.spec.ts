@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SEMESTER_WEEK,
   addDays,
   fromIso,
   isValidIso,
-  isWithin,
   isoWeekNumber,
   slotKey,
   startOfWeek,
@@ -98,32 +98,21 @@ describe('isValidIso', () => {
 });
 
 describe('Slotschlüssel', () => {
-  it('polstert die Stunde auf zwei Stellen', () => {
-    expect(slotKey('2026-08-12', 9)).toBe('2026-08-12T09');
+  it('setzt sich aus Wochenplan und Stelle im Raster zusammen', () => {
+    expect(slotKey(SEMESTER_WEEK, 1, 9)).toBe('semester|1-9');
+    expect(slotKey('2026-08-10', 1, 9)).toBe('2026-08-10|1-9');
   });
 
-  it('sortiert als Zeichenkette chronologisch', () => {
-    // Darauf verlassen sich Export und Wochengruppierung.
-    const keys = [slotKey('2026-08-12', 14), slotKey('2026-08-09', 9), slotKey('2026-08-12', 9)];
-    expect([...keys].sort()).toEqual(['2026-08-09T09', '2026-08-12T09', '2026-08-12T14']);
-  });
-
-  it('hält Wochentagsschlüssel getrennt vom Datumsschlüssel', () => {
+  it('hält die Stelle im Raster für sich abrufbar', () => {
+    // Darauf beruht das Übertragen zwischen Wochen: gleiche Stelle, andere Woche.
     expect(weekdaySlotKey(1, 14)).toBe('1-14');
   });
-});
 
-describe('isWithin', () => {
-  it('schließt beide Grenzen ein', () => {
-    expect(isWithin('2026-08-10', '2026-08-10', '2026-08-14')).toBe(true);
-    expect(isWithin('2026-08-14', '2026-08-10', '2026-08-14')).toBe(true);
-  });
-
-  it('erkennt Daten außerhalb', () => {
-    expect(isWithin('2026-08-15', '2026-08-10', '2026-08-14')).toBe(false);
-    expect(isWithin('2026-08-09', '2026-08-10', '2026-08-14')).toBe(false);
+  it('trennt Wochen sauber voneinander', () => {
+    expect(slotKey('2026-08-10', 1, 9)).not.toBe(slotKey('2026-08-17', 1, 9));
   });
 });
+
 
 describe('toIso und fromIso', () => {
   it('sind zueinander invers', () => {

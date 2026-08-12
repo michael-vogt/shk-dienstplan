@@ -6,38 +6,63 @@
     </p>
   </header>
 
-  @if (!store.weeks().length) {
-    <p class="empty">Keine Öffnungstage im Zeitraum — Schritt 1 prüfen.</p>
+  @if (!store.weekPlans().length) {
+    <p class="empty">Kein Wochenplan im Zeitraum — Schritt 1 prüfen.</p>
   } @else {
-    <nav class="weeks">
-      @for (week of store.weeks(); track week.monday) {
-        <button
-          type="button"
-          [class.active]="week.monday === selectedMonday()"
-          (click)="selectedMonday.set(week.monday)"
-        >
-          {{ week.label }}
-          <span class="week-range">ab {{ formatDate(week.monday) }}</span>
-        </button>
-      }
-    </nav>
+    @if (store.isBreakMode()) {
+      <nav class="weeks">
+        @for (plan of store.weekPlans(); track plan.key) {
+          <button
+            type="button"
+            [class.active]="plan.key === selectedWeek()"
+            [class.current]="plan.key === currentMonday"
+            (click)="selectedWeek.set(plan.key)"
+          >
+            <span class="week-label">
+              {{ plan.label }}
+              @if (plan.key === currentMonday) {
+                <span class="current-dot" aria-hidden="true"></span>
+              }
+            </span>
+            <span class="week-range">
+              @if (plan.key === currentMonday) {
+                diese Woche
+              } @else if (plan.monday) {
+                ab {{ formatDate(plan.monday) }}
+              }
+            </span>
+          </button>
+        }
+      </nav>
 
-    <div class="week-tools">
-      @if (otherWeeks().length) {
-        <label>
-          Einteilung übernehmen aus
-          <select (change)="copyFrom($event)">
-            <option value="">– Woche wählen –</option>
-            @for (week of otherWeeks(); track week.monday) {
-              <option [value]="week.monday">{{ week.label }}</option>
-            }
-          </select>
-        </label>
-      }
-      <span class="spacer"></span>
-      <button type="button" class="ghost" (click)="clearWeek()">Woche leeren</button>
-      <button type="button" class="ghost" (click)="clearAll()">Alles leeren</button>
-    </div>
+      <div class="week-tools">
+        @if (otherWeeks().length) {
+          <label>
+            Einteilung übernehmen aus
+            <select (change)="copyFrom($event)">
+              <option value="">– Woche wählen –</option>
+              @for (other of otherWeeks(); track other.key) {
+                <option [value]="other.key">{{ other.label }}</option>
+              }
+            </select>
+          </label>
+        }
+        @if (hasCurrentWeek() && selectedWeek() !== currentMonday) {
+          <button type="button" class="ghost" (click)="selectedWeek.set(currentMonday)">
+            Zur laufenden Woche
+          </button>
+        }
+        <span class="spacer"></span>
+        <button type="button" class="ghost" (click)="clearWeek()">Woche leeren</button>
+        <button type="button" class="ghost" (click)="clearAll()">Alles leeren</button>
+      </div>
+    } @else {
+      <div class="week-tools">
+        <span class="scope-note">Musterwoche — gilt für jede Woche des Semesters.</span>
+        <span class="spacer"></span>
+        <button type="button" class="ghost" (click)="clearAll()">Einteilung leeren</button>
+      </div>
+    }
 
     <div class="layout">
       <div class="grid-scroll">
@@ -45,30 +70,33 @@
           <thead>
           <tr>
             <th class="corner">Uhrzeit</th>
-            @for (date of weekDates(); track date) {
-              <th>
-                {{ short(date) }}
-                <span class="date">{{ formatDate(date) }}</span>
+            @for (day of store.openWeekdays(); track day) {
+              <th [class.today]="isToday(dateOf(selectedWeek(), day))">
+                {{ short(day) }}
+                @if (dateOf(selectedWeek(), day); as date) {
+                  <span class="date">{{ formatDate(date) }}</span>
+                }
               </th>
             }
           </tr>
           </thead>
           <tbody>
-            @for (hour of hourRows(); track hour) {
+            @for (hour of store.hourRows(); track hour) {
               <tr>
                 <th scope="row" class="time">{{ time(hour) }}</th>
-                @for (date of weekDates(); track date) {
-                  @if (isOpen(date, hour)) {
+                @for (day of store.openWeekdays(); track day) {
+                  @if (isOpen(selectedWeek(), day, hour)) {
                     <td>
                       <button
                         type="button"
                         class="cell"
-                        [class.selected]="selectedKey() === key(date, hour)"
-                        [class.empty-slot]="!assignedFor(date, hour).length"
-                        [class.has-error]="levelFor(date, hour) === 'error'"
-                        (click)="select(date, hour)"
+                        [class.selected]="selectedKey() === key(day, hour)"
+                        [class.empty-slot]="!assignedFor(selectedWeek(), day, hour).length"
+                        [class.has-error]="levelFor(day, hour) === 'error'"
+                        (click)="select(day, hour)"
                       >
-                        @for (assistant of assignedFor(date, hour); track assistant.id) {
+                        @for (assistant of assignedFor(selectedWeek(), day, hour);
+                          track assistant.id) {
                           <span class="pill" [style.background]="assistant.color">
                             {{ assistant.name }}
                           </span>
@@ -104,7 +132,7 @@
                     (click)="toggle(candidate.assistant.id)"
                   >
                     <span class="name">{{ candidate.assistant.name }}</span>
-                    <span [class]="'answer ' + answerClass(candidate)">
+                    <span [class]="'answer a-' + (candidate.answer ?? 'unset')">
                       {{ answerLabel(candidate) }}
                     </span>
                   </button>
@@ -116,13 +144,19 @@
           <p class="empty">Eine Stunde im Raster auswählen.</p>
         }
 
-        <h3>Stunden je Hilfskraft</h3>
+        <h3>
+          @if (store.isBreakMode()) {
+            Stunden in dieser Woche
+          } @else {
+            Stunden je Woche
+          }
+        </h3>
         <ul class="hours">
           @for (assistant of store.assistants(); track assistant.id) {
             <li>
               <span class="dot" [style.background]="assistant.color"></span>
               <span class="name">{{ assistant.name }}</span>
-              <span class="num">{{ store.hoursByAssistant()[assistant.id] }} h</span>
+              <span class="num">{{ hoursThisWeek()[assistant.id] }} h</span>
             </li>
           } @empty {
             <li class="empty">—</li>
@@ -132,37 +166,42 @@
     </div>
 
     <!--
-      Nur für den Druck: alle Wochen des Zeitraums untereinander, je eine Seite.
-      Am Bildschirm bleibt es bei der ausgewählten Woche, sonst wäre die Seite
-      bei einem Semesterplan unbedienbar lang.
+      Nur für den Druck: alle Wochenpläne untereinander, je eine Seite. Am
+      Bildschirm bleibt es bei der Auswahl, sonst wäre die Seite zu lang.
     -->
     <div class="print-weeks">
-      @for (week of store.weeks(); track week.monday) {
+      @for (plan of store.weekPlans(); track plan.key) {
         <section class="print-week">
           <h3 class="print-week-head">
-            {{ week.label }} · {{ formatDateLong(week.monday) }}
+            @if (plan.monday) {
+              {{ plan.label }} · ab {{ formatDateLong(plan.monday) }}
+            } @else {
+              Musterwoche · gilt für jede Woche des Semesters
+            }
           </h3>
           <table class="grid">
             <thead>
             <tr>
               <th class="corner">Uhrzeit</th>
-              @for (date of week.dates; track date) {
+              @for (day of store.openWeekdays(); track day) {
                 <th>
-                  {{ short(date) }}
-                  <span class="date">{{ formatDate(date) }}</span>
+                  {{ short(day) }}
+                  @if (dateOf(plan.key, day); as date) {
+                    <span class="date">{{ formatDate(date) }}</span>
+                  }
                 </th>
               }
             </tr>
             </thead>
             <tbody>
-              @for (hour of store.hourRowsFor(week.dates); track hour) {
+              @for (hour of store.hourRows(); track hour) {
                 <tr>
                   <th scope="row" class="time">{{ time(hour) }}</th>
-                  @for (date of week.dates; track date) {
-                    @if (isOpen(date, hour)) {
+                  @for (day of store.openWeekdays(); track day) {
+                    @if (isOpen(plan.key, day, hour)) {
                       <td>
                         <span class="cell">
-                          @for (assistant of assignedFor(date, hour); track assistant.id) {
+                          @for (assistant of assignedFor(plan.key, day, hour); track assistant.id) {
                             <span class="pill" [style.background]="assistant.color">
                               {{ assistant.name }}
                             </span>
@@ -186,7 +225,11 @@
     <div class="warnings">
       <div class="warnings-head">
         <h3>
-          Hinweise dieser Woche ({{ weekWarnings().length }})
+          @if (store.isBreakMode()) {
+            Hinweise dieser Woche ({{ weekWarnings().length }})
+          } @else {
+            Hinweise ({{ weekWarnings().length }})
+          }
           @if (errorCount()) {
             <span class="error-count">davon {{ errorCount() }} Konflikt(e)</span>
           }
@@ -196,7 +239,7 @@
         }
       </div>
       @if (!weekWarnings().length) {
-        <p class="ok">In dieser Woche ist jede Stunde besetzt, keine Konflikte.</p>
+        <p class="ok">Jede Stunde ist besetzt, keine Konflikte.</p>
       } @else {
         <ul>
           @for (warning of weekWarnings(); track $index) {

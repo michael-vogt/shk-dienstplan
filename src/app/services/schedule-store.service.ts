@@ -1,22 +1,23 @@
 import { Service, computed, effect, signal } from '@angular/core';
 import {
   AVAILABILITY_ORDER,
-  Absence,
   Availability,
-  DateException,
   IsoDate,
   OpeningHours,
+  PlanMode,
+  SEMESTER_WEEK,
   ScheduleState,
   ScheduleWarning,
   Slot,
   WEEKDAYS,
   WEEKDAY_SHORT,
+  WeekKey,
+  WeekPlan,
   Weekday,
   addDays,
   formatDate,
   formatHour,
   isValidIso,
-  isWithin,
   isoWeekNumber,
   slotKey,
   startOfWeek,
@@ -59,7 +60,7 @@ function clampHour(value: number): number {
   return Math.min(24, Math.max(0, Math.round(value)));
 }
 
-/** Vorbelegung: laufende Woche bis vier Wochen später. */
+/** Vorbelegung für den Ferienmodus: laufende Woche plus drei weitere. */
 function defaultPeriod(): { start: IsoDate; end: IsoDate } {
   const start = startOfWeek(toIso(new Date()));
   return { start, end: addDays(start, 4 * 7 - 3) };
@@ -67,8 +68,9 @@ function defaultPeriod(): { start: IsoDate; end: IsoDate } {
 
 function createDefaultState(): ScheduleState {
   return {
-    version: 2,
+    version: 4,
     title: 'Dienstplan Bibliothek',
+    mode: 'semester',
     period: defaultPeriod(),
     openingHours: WEEKDAYS.map((weekday) => ({
       weekday,
@@ -76,9 +78,7 @@ function createDefaultState(): ScheduleState {
       start: 9,
       end: 18,
     })),
-    exceptions: [],
     assistants: [],
-    absences: [],
     availability: {},
     assignments: {},
   };
@@ -95,27 +95,88 @@ function loadState(): ScheduleState {
 }
 
 /**
- * Hebt einen v1-Stand auf v2: dort war die Einteilung wochentagsbasiert
- * (`weekday-hour`). Sie wird auf jeden passenden Termin im Zeitraum
- * übertragen, weil ein v1-Plan genau als solche Wiederholung gemeint war.
+ * Hebt ältere Stände auf v4. Frühere Fassungen kannten den Modus noch nicht
+ * und speicherten Schlüssel ohne Wochenanteil (`1-9`) oder mit Datum
+ * (`2026-08-10T09`). Beides wird auf `weekKey|weekday-hour` gebracht.
  */
-function migrateV1(raw: Record<string, unknown>, period: { start: IsoDate; end: IsoDate }) {
+function migrateKeys(
+  raw: Record<string, unknown>,
+): { mode: PlanMode; assignments: Record<string, string[]> } {
   const legacy = (raw['assignments'] ?? {}) as Record<string, unknown>;
   const assignments: Record<string, string[]> = {};
+  let sawDate = false;
 
-  for (let date = period.start; date <= period.end; date = addDays(date, 1)) {
-    const weekday = weekdayOf(date);
-    if (weekday === null) continue;
-    for (const [key, ids] of Object.entries(legacy)) {
-      if (!Array.isArray(ids) || !ids.length) continue;
-      const [dayPart, hourPart] = key.split('-');
-      if (Number(dayPart) !== weekday) continue;
-      const hour = Number(hourPart);
-      if (!Number.isFinite(hour)) continue;
-      assignments[slotKey(date, hour)] = ids.filter((id): id is string => typeof id === 'string');
+  for (const [key, ids] of Object.entries(legacy)) {
+    if (!Array.isArray(ids) || !ids.length) continue;
+    const people = ids.filter((id): id is string => typeof id === 'string');
+    if (!people.length) continue;
+
+    if (key.includes('|')) {
+      // Bereits v4.
+      assignments[key] = people;
+      continue;
+    }
+
+    const dateMatch = /^(\d{4}-\d{2}-\d{2})T(\d{2})$/.exec(key);
+    if (dateMatch) {
+      // v2/v3: konkreter Termin -> Woche plus Wochentag.
+      const [, date, hour] = dateMatch;
+      const weekday = weekdayOf(date!);
+      if (weekday === null) continue;
+      sawDate = true;
+      assignments[slotKey(startOfWeek(date!), weekday, Number(hour))] = people;
+      continue;
+    }
+
+    const weekdayMatch = /^([1-5])-(\d{1,2})$/.exec(key);
+    if (weekdayMatch) {
+      // v1: wiederkehrende Woche -> Semesterplan.
+      const [, weekday, hour] = weekdayMatch;
+      assignments[slotKey(SEMESTER_WEEK, Number(weekday) as Weekday, Number(hour))] = people;
     }
   }
-  return assignments;
+
+  return { mode: sawDate ? 'break' : 'semester', assignments };
+}
+
+/**
+ * Hebt Verfügbarkeiten älterer Stände an. Bis v3 waren sie wochentagsbasiert
+ * und galten für den ganzen Plan — das entspricht dem Semesterplan.
+ */
+function migrateAvailability(
+  raw: Record<string, unknown>,
+  knownIds: Set<string>,
+): ScheduleState['availability'] {
+  const result: ScheduleState['availability'] = {};
+  const source = (raw['availability'] ?? {}) as Record<string, unknown>;
+
+  for (const [assistantId, bySlot] of Object.entries(source)) {
+    if (!knownIds.has(assistantId) || !bySlot || typeof bySlot !== 'object') continue;
+    const entries: Record<string, Availability> = {};
+    for (const [key, value] of Object.entries(bySlot as Record<string, unknown>)) {
+      if (!AVAILABILITY_ORDER.includes(value as Availability)) continue;
+      entries[key.includes('|') ? key : `${SEMESTER_WEEK}|${key}`] = value as Availability;
+    }
+    if (Object.keys(entries).length) result[assistantId] = entries;
+  }
+
+  // v3 kannte zusätzlich wochenweise Angaben in der vorlesungsfreien Zeit.
+  const weekly = (raw['weeklyAvailability'] ?? {}) as Record<string, unknown>;
+  for (const [assistantId, byWeek] of Object.entries(weekly)) {
+    if (!knownIds.has(assistantId) || !byWeek || typeof byWeek !== 'object') continue;
+    const entries = { ...(result[assistantId] ?? {}) };
+    for (const [monday, bySlot] of Object.entries(byWeek as Record<string, unknown>)) {
+      if (!isValidIso(monday) || !bySlot || typeof bySlot !== 'object') continue;
+      for (const [key, value] of Object.entries(bySlot as Record<string, unknown>)) {
+        if (AVAILABILITY_ORDER.includes(value as Availability)) {
+          entries[`${startOfWeek(monday)}|${key}`] = value as Availability;
+        }
+      }
+    }
+    if (Object.keys(entries).length) result[assistantId] = entries;
+  }
+
+  return result;
 }
 
 /** Prüft eine geladene oder importierte Struktur und füllt fehlende Felder auf. */
@@ -162,88 +223,28 @@ export function normalizeState(input: unknown): ScheduleState {
     }));
 
   const knownIds = new Set(assistants.map((a) => a.id));
+  const availability = migrateAvailability(raw, knownIds);
+  const migrated = migrateKeys(raw);
 
-  const availability: ScheduleState['availability'] = {};
-  const rawAvailability = (raw['availability'] ?? {}) as Record<string, unknown>;
-  for (const [assistantId, bySlot] of Object.entries(rawAvailability)) {
-    if (!knownIds.has(assistantId) || !bySlot || typeof bySlot !== 'object') continue;
-    availability[assistantId] = {};
-    for (const [key, value] of Object.entries(bySlot as Record<string, unknown>)) {
-      if (AVAILABILITY_ORDER.includes(value as Availability)) {
-        availability[assistantId]![key] = value as Availability;
-      }
-    }
-  }
-
-  const exceptionsRaw = Array.isArray(raw['exceptions']) ? raw['exceptions'] : [];
-  const exceptions: DateException[] = [];
-  for (const item of exceptionsRaw) {
-    if (!item || typeof item !== 'object') continue;
-    const e = item as Record<string, unknown>;
-    if (!isValidIso(e['date'])) continue;
-    if (exceptions.some((x) => x.date === e['date'])) continue;
-    const start = typeof e['start'] === 'number' ? clampHour(e['start']) : undefined;
-    const end = typeof e['end'] === 'number' ? clampHour(e['end']) : undefined;
-    exceptions.push({
-      date: e['date'] as IsoDate,
-      closed: e['closed'] === true,
-      start,
-      end: start !== undefined && end !== undefined ? Math.max(end, start + 1) : end,
-      note: typeof e['note'] === 'string' ? e['note'] : undefined,
-    });
-  }
-  exceptions.sort((a, b) => a.date.localeCompare(b.date));
-
-  const absencesRaw = Array.isArray(raw['absences']) ? raw['absences'] : [];
-  const absences: Absence[] = [];
-  for (const item of absencesRaw) {
-    if (!item || typeof item !== 'object') continue;
-    const a = item as Record<string, unknown>;
-    if (typeof a['assistantId'] !== 'string' || !knownIds.has(a['assistantId'])) continue;
-    if (!isValidIso(a['from']) || !isValidIso(a['to'])) continue;
-    const from = a['from'] as IsoDate;
-    const to = a['to'] as IsoDate;
-    absences.push({
-      id: typeof a['id'] === 'string' ? a['id'] : createId(),
-      assistantId: a['assistantId'],
-      from: from <= to ? from : to,
-      to: from <= to ? to : from,
-      reason: typeof a['reason'] === 'string' ? a['reason'] : undefined,
-    });
-  }
-
-  // Einteilung: v2 verwendet Datumsschlüssel, v1 Wochentagsschlüssel.
-  const isLegacy = raw['version'] !== 2;
-  const rawAssignments = isLegacy
-    ? migrateV1(raw, period)
-    : ((raw['assignments'] ?? {}) as Record<string, unknown>);
+  const mode: PlanMode =
+    raw['mode'] === 'semester' || raw['mode'] === 'break' ? raw['mode'] : migrated.mode;
 
   const assignments: ScheduleState['assignments'] = {};
-  for (const [key, ids] of Object.entries(rawAssignments)) {
-    if (!Array.isArray(ids)) continue;
-    const kept = [...new Set(ids.filter((id): id is string => knownIds.has(id as string)))];
+  for (const [key, ids] of Object.entries(migrated.assignments)) {
+    const kept = [...new Set(ids.filter((id) => knownIds.has(id)))];
     if (kept.length) assignments[key] = kept;
   }
 
   return {
-    version: 2,
+    version: 4,
     title: typeof raw['title'] === 'string' && raw['title'].trim() ? raw['title'] : base.title,
+    mode,
     period,
     openingHours,
-    exceptions,
     assistants,
-    absences,
     availability,
     assignments,
   };
-}
-
-export interface WeekGroup {
-  /** Montag dieser Woche, auch wenn der Zeitraum später beginnt. */
-  monday: IsoDate;
-  week: number;
-  label: string;
-  dates: IsoDate[];
 }
 
 @Service()
@@ -252,105 +253,118 @@ export class ScheduleStore {
 
   readonly state = this._state.asReadonly();
   readonly title = computed(() => this._state().title);
+  readonly mode = computed(() => this._state().mode);
+  readonly isBreakMode = computed(() => this._state().mode === 'break');
   readonly period = computed(() => this._state().period);
   readonly assistants = computed(() => this._state().assistants);
   readonly openingHours = computed(() => this._state().openingHours);
-  readonly exceptions = computed(() => this._state().exceptions);
-  readonly absences = computed(() => this._state().absences);
 
-  private readonly exceptionByDate = computed(() => {
-    const map = new Map<IsoDate, DateException>();
-    for (const e of this._state().exceptions) map.set(e.date, e);
-    return map;
+  /** Geöffnete Wochentage laut Standard — in beiden Modi dieselbe Grundlage. */
+  readonly openWeekdays = computed<Weekday[]>(() =>
+    this._state()
+      .openingHours.filter((o) => o.open)
+      .map((o) => o.weekday),
+  );
+
+  /** Stundenzeilen aus der Spannweite der Öffnungszeiten. */
+  readonly hourRows = computed<number[]>(() => {
+    const open = this._state().openingHours.filter((o) => o.open);
+    if (!open.length) return [];
+    const start = Math.min(...open.map((o) => o.start));
+    const end = Math.max(...open.map((o) => o.end));
+    return Array.from({ length: end - start }, (_, i) => start + i);
   });
 
-  /** Alle Werktage im Zeitraum, an denen tatsächlich geöffnet ist. */
-  readonly openDates = computed<IsoDate[]>(() => {
-    const { start, end } = this._state().period;
-    const result: IsoDate[] = [];
-    // Schutz vor versehentlich riesigen Zeiträumen (rund fünf Jahre).
-    for (
-      let date = start, guard = 0;
-      date <= end && guard < 2000;
-      date = addDays(date, 1), guard++
-    ) {
-      if (this.hoursFor(date)) result.push(date);
-    }
-    return result;
-  });
+  /** Zellen eines einzelnen Wochenplans. */
+  readonly slotsPerWeek = computed(() =>
+    this._state()
+      .openingHours.filter((o) => o.open)
+      .reduce((sum, o) => sum + (o.end - o.start), 0),
+  );
 
   /**
-   * Öffnungszeit eines konkreten Termins, oder `null` wenn geschlossen.
-   * Reihenfolge: Wochenende → Wochentagsstandard → Ausnahme für diesen Tag.
+   * Die Wochenpläne dieses Dienstplans: im Semestermodus genau einer ohne
+   * Datumsbezug, im Ferienmodus einer je Kalenderwoche im Zeitraum.
    */
-  hoursFor(date: IsoDate): { start: number; end: number } | null {
-    const weekday = weekdayOf(date);
-    if (weekday === null) return null;
+  readonly weekPlans = computed<WeekPlan[]>(() => {
+    const state = this._state();
+    if (state.mode === 'semester') {
+      return [{ key: SEMESTER_WEEK, label: 'Musterwoche', monday: null, dates: [] }];
+    }
 
-    const base = this._state().openingHours.find((o) => o.weekday === weekday);
-    const exception = this.exceptionByDate().get(date);
+    const openWeekdays = new Set(this.openWeekdays());
+    const plans: WeekPlan[] = [];
+    const { start, end } = state.period;
 
-    if (exception?.closed) return null;
-    const start = exception?.start ?? base?.start;
-    const end = exception?.end ?? base?.end;
-    if (start === undefined || end === undefined) return null;
-    if (!exception && !base?.open) return null;
-    if (end <= start) return null;
-    return { start, end };
-  }
-
-  isOpenAt(date: IsoDate, hour: number): boolean {
-    const hours = this.hoursFor(date);
-    return !!hours && hour >= hours.start && hour < hours.end;
-  }
+    // Schutz vor versehentlich riesigen Zeiträumen (rund fünf Jahre).
+    for (
+      let monday = startOfWeek(start), guard = 0;
+      monday <= end && guard < 300;
+      monday = addDays(monday, 7), guard++
+    ) {
+      const dates: { weekday: Weekday; date: IsoDate }[] = [];
+      for (let offset = 0; offset < 5; offset++) {
+        const date = addDays(monday, offset);
+        if (date < start || date > end) continue;
+        const weekday = weekdayOf(date);
+        if (weekday === null || !openWeekdays.has(weekday)) continue;
+        dates.push({ weekday, date });
+      }
+      if (!dates.length) continue;
+      plans.push({
+        key: monday,
+        label: `KW ${isoWeekNumber(monday)}`,
+        monday,
+        dates,
+      });
+    }
+    return plans;
+  });
 
   readonly slots = computed<Slot[]>(() => {
     const result: Slot[] = [];
-    for (const date of this.openDates()) {
-      const hours = this.hoursFor(date)!;
-      const weekday = weekdayOf(date)!;
-      for (let hour = hours.start; hour < hours.end; hour++) {
-        result.push({
-          date,
-          weekday,
-          hour,
-          key: slotKey(date, hour),
-          weekdayKey: weekdaySlotKey(weekday, hour),
-        });
+    const openingHours = this._state().openingHours;
+
+    for (const plan of this.weekPlans()) {
+      const weekdays =
+        plan.monday === null
+          ? this.openWeekdays().map((weekday) => ({ weekday, date: null as IsoDate | null }))
+          : plan.dates.map((d) => ({ weekday: d.weekday, date: d.date as IsoDate | null }));
+
+      for (const { weekday, date } of weekdays) {
+        const hours = openingHours.find((o) => o.weekday === weekday);
+        if (!hours?.open) continue;
+        for (let hour = hours.start; hour < hours.end; hour++) {
+          result.push({
+            week: plan.key,
+            weekday,
+            hour,
+            key: slotKey(plan.key, weekday, hour),
+            weekdayKey: weekdaySlotKey(weekday, hour),
+            date,
+          });
+        }
       }
     }
     return result;
   });
 
-  /** Termine nach Kalenderwochen gruppiert, für die Wochennavigation. */
-  readonly weeks = computed<WeekGroup[]>(() => {
-    const groups = new Map<IsoDate, WeekGroup>();
-    for (const date of this.openDates()) {
-      const monday = startOfWeek(date);
-      let group = groups.get(monday);
-      if (!group) {
-        group = {
-          monday,
-          week: isoWeekNumber(date),
-          label: `KW ${isoWeekNumber(date)}`,
-          dates: [],
-        };
-        groups.set(monday, group);
-      }
-      group.dates.push(date);
-    }
-    return [...groups.values()].sort((a, b) => a.monday.localeCompare(b.monday));
-  });
+  slotsOfWeek(week: WeekKey): Slot[] {
+    return this.slots().filter((s) => s.week === week);
+  }
 
-  /** Stundenzeilen einer Woche: von der frühesten bis zur spätesten Öffnung. */
-  hourRowsFor(dates: IsoDate[]): number[] {
-    const ranges = dates
-      .map((d) => this.hoursFor(d))
-      .filter((h): h is { start: number; end: number } => !!h);
-    if (!ranges.length) return [];
-    const start = Math.min(...ranges.map((r) => r.start));
-    const end = Math.max(...ranges.map((r) => r.end));
-    return Array.from({ length: end - start }, (_, i) => start + i);
+  /** Kalendertag einer Spalte im Ferienmodus, sonst null. */
+  dateOf(week: WeekKey, weekday: Weekday): IsoDate | null {
+    const plan = this.weekPlans().find((p) => p.key === week);
+    return plan?.dates.find((d) => d.weekday === weekday)?.date ?? null;
+  }
+
+  isOpenIn(week: WeekKey, weekday: Weekday, hour: number): boolean {
+    const plan = this.weekPlans().find((p) => p.key === week);
+    if (!plan) return false;
+    if (plan.monday !== null && !plan.dates.some((d) => d.weekday === weekday)) return false;
+    const hours = this._state().openingHours.find((o) => o.weekday === weekday);
+    return !!hours?.open && hour >= hours.start && hour < hours.end;
   }
 
   readonly assignedCount = computed(() => {
@@ -358,6 +372,7 @@ export class ScheduleStore {
     return this.slots().filter((s) => (assignments[s.key]?.length ?? 0) > 0).length;
   });
 
+  /** Eingeteilte Stunden je Hilfskraft über den gesamten Dienstplan. */
   readonly hoursByAssistant = computed<Record<string, number>>(() => {
     const result: Record<string, number> = {};
     for (const a of this._state().assistants) result[a.id] = 0;
@@ -369,59 +384,112 @@ export class ScheduleStore {
     return result;
   });
 
+  hoursByAssistantInWeek(week: WeekKey): Record<string, number> {
+    const result: Record<string, number> = {};
+    for (const a of this._state().assistants) result[a.id] = 0;
+    for (const slot of this.slotsOfWeek(week)) {
+      for (const id of this._state().assignments[slot.key] ?? []) {
+        if (id in result) result[id] = (result[id] ?? 0) + 1;
+      }
+    }
+    return result;
+  }
+
   // --- Verfügbarkeit --------------------------------------------------------
 
-  /** Wochentagsantwort, unabhängig vom konkreten Termin. */
-  getAvailability(assistantId: string, weekdayKey: string): Availability | undefined {
-    return this._state().availability[assistantId]?.[weekdayKey];
+  getAvailability(assistantId: string, key: SlotKeyLike): Availability | undefined {
+    return this._state().availability[assistantId]?.[key];
   }
 
-  isAbsent(assistantId: string, date: IsoDate): boolean {
-    return this._state().absences.some(
-      (a) => a.assistantId === assistantId && isWithin(date, a.from, a.to),
-    );
+  answeredCount(assistantId: string, week: WeekKey): number {
+    return this.slotsOfWeek(week).filter((s) => this.getAvailability(assistantId, s.key)).length;
   }
 
-  /**
-   * Antwort für einen konkreten Termin: die Wochentagsantwort, aber durch eine
-   * eingetragene Abwesenheit überschrieben.
-   */
-  availabilityAt(assistantId: string, slot: Slot): Availability | undefined {
-    if (this.isAbsent(assistantId, slot.date)) return 'no';
-    return this.getAvailability(assistantId, slot.weekdayKey);
+  setAvailability(assistantId: string, key: SlotKeyLike, value: Availability | undefined): void {
+    this._state.update((s) => {
+      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
+      if (value === undefined) delete forAssistant[key];
+      else forAssistant[key] = value;
+      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
+    });
   }
+
+  /** Klick auf eine Zelle: unbeantwortet → Ja → Wenn es sein muss → Nein → unbeantwortet. */
+  cycleAvailability(assistantId: string, key: SlotKeyLike): void {
+    const current = this.getAvailability(assistantId, key);
+    const next: Record<string, Availability | undefined> = {
+      undefined: 'yes',
+      yes: 'ifNeeded',
+      ifNeeded: 'no',
+      no: undefined,
+    };
+    this.setAvailability(assistantId, key, next[String(current)]);
+  }
+
+  setAvailabilityForSlots(
+    assistantId: string,
+    keys: SlotKeyLike[],
+    value: Availability | undefined,
+  ): void {
+    this._state.update((s) => {
+      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
+      for (const key of keys) {
+        if (value === undefined) delete forAssistant[key];
+        else forAssistant[key] = value;
+      }
+      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
+    });
+  }
+
+  /** Überträgt die Verfügbarkeiten einer Woche auf eine andere. */
+  copyAvailability(assistantId: string, source: WeekKey, target: WeekKey): number {
+    if (source === target) return 0;
+    let copied = 0;
+    this._state.update((s) => {
+      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
+      for (const slot of this.slotsOfWeek(target)) {
+        const value = forAssistant[`${source}|${slot.weekdayKey}`];
+        if (!value) continue;
+        forAssistant[slot.key] = value;
+        copied++;
+      }
+      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
+    });
+    return copied;
+  }
+
+  // --- Warnungen ------------------------------------------------------------
 
   readonly warnings = computed<ScheduleWarning[]>(() => {
     const state = this._state();
     const result: ScheduleWarning[] = [];
-    const nameOf = (id: string) => state.assistants.find((a) => a.id === id)?.name ?? 'Unbekannt';
+    const nameOf = (id: string) =>
+      state.assistants.find((a) => a.id === id)?.name ?? 'Unbekannt';
 
     for (const slot of this.slots()) {
-      const label = `${WEEKDAY_SHORT[slot.weekday]} ${formatDate(slot.date)} ${formatHour(slot.hour)}`;
+      const label = slot.date
+        ? `${WEEKDAY_SHORT[slot.weekday]} ${formatDate(slot.date)} ${formatHour(slot.hour)}`
+        : `${WEEKDAY_SHORT[slot.weekday]} ${formatHour(slot.hour)}`;
       const assigned = state.assignments[slot.key] ?? [];
 
       if (!assigned.length) {
-        result.push({ level: 'warn', slotKey: slot.key, message: `${label}: niemand eingeteilt.` });
+        result.push({
+          level: 'warn',
+          slotKey: slot.key,
+          week: slot.week,
+          message: `${label}: niemand eingeteilt.`,
+        });
         continue;
       }
 
       let onlyIfNeeded = true;
       for (const id of assigned) {
-        if (this.isAbsent(id, slot.date)) {
-          result.push({
-            level: 'error',
-            slotKey: slot.key,
-            assistantId: id,
-            message: `${label}: ${nameOf(id)} ist an diesem Tag abwesend.`,
-          });
-          onlyIfNeeded = false;
-          continue;
-        }
-        const answer = this.getAvailability(id, slot.weekdayKey);
+        const answer = this.getAvailability(id, slot.key);
         if (answer === 'no') {
           result.push({
             level: 'error',
             slotKey: slot.key,
+            week: slot.week,
             assistantId: id,
             message: `${label}: ${nameOf(id)} hat hier „Nein" angegeben.`,
           });
@@ -429,6 +497,7 @@ export class ScheduleStore {
           result.push({
             level: 'error',
             slotKey: slot.key,
+            week: slot.week,
             assistantId: id,
             message: `${label}: von ${nameOf(id)} liegt für diese Stunde keine Antwort vor.`,
           });
@@ -440,6 +509,7 @@ export class ScheduleStore {
         result.push({
           level: 'info',
           slotKey: slot.key,
+          week: slot.week,
           message: `${label}: nur mit „Wenn es sein muss" besetzt.`,
         });
       }
@@ -452,7 +522,7 @@ export class ScheduleStore {
     if (orphans.length) {
       result.push({
         level: 'warn',
-        message: `${orphans.length} Zuweisung(en) liegen außerhalb der Öffnungszeiten oder des Zeitraums.`,
+        message: `${orphans.length} Zuweisung(en) liegen außerhalb der aktuellen Wochenpläne.`,
       });
     }
 
@@ -469,6 +539,10 @@ export class ScheduleStore {
     }
     return map;
   });
+
+  warningsOfWeek(week: WeekKey): ScheduleWarning[] {
+    return this.warnings().filter((w) => w.week === week);
+  }
 
   readonly hasOrphanAssignments = computed(() => {
     const valid = new Set(this.slots().map((s) => s.key));
@@ -492,6 +566,15 @@ export class ScheduleStore {
 
   setTitle(title: string): void {
     this._state.update((s) => ({ ...s, title }));
+  }
+
+  /**
+   * Wechselt den Plantyp. Verfügbarkeiten und Einteilung bleiben gespeichert,
+   * sind aber nur im jeweils passenden Modus sichtbar — der Wechsel ist damit
+   * verlustfrei umkehrbar.
+   */
+  setMode(mode: PlanMode): void {
+    this._state.update((s) => ({ ...s, mode }));
   }
 
   setPeriod(patch: Partial<{ start: IsoDate; end: IsoDate }>): void {
@@ -528,39 +611,6 @@ export class ScheduleStore {
         start: template.start,
         end: template.end,
       })),
-    }));
-  }
-
-  addException(date: IsoDate, note = ''): void {
-    if (!isValidIso(date)) return;
-    this._state.update((s) => {
-      if (s.exceptions.some((e) => e.date === date)) return s;
-      const exceptions = [...s.exceptions, { date, closed: true, note: note.trim() || undefined }];
-      exceptions.sort((a, b) => a.date.localeCompare(b.date));
-      return { ...s, exceptions };
-    });
-  }
-
-  updateException(date: IsoDate, patch: Partial<DateException>): void {
-    this._state.update((s) => ({
-      ...s,
-      exceptions: s.exceptions.map((e) => {
-        if (e.date !== date) return e;
-        const next = { ...e, ...patch };
-        if (next.start !== undefined) next.start = clampHour(next.start);
-        if (next.end !== undefined) next.end = clampHour(next.end);
-        if (next.start !== undefined && next.end !== undefined && next.end <= next.start) {
-          next.end = next.start + 1;
-        }
-        return next;
-      }),
-    }));
-  }
-
-  removeException(date: IsoDate): void {
-    this._state.update((s) => ({
-      ...s,
-      exceptions: s.exceptions.filter((e) => e.date !== date),
     }));
   }
 
@@ -601,91 +651,23 @@ export class ScheduleStore {
       return {
         ...s,
         assistants: s.assistants.filter((a) => a.id !== id),
-        absences: s.absences.filter((a) => a.assistantId !== id),
         availability,
         assignments,
       };
     });
   }
 
-  // --- Abwesenheiten --------------------------------------------------------
-
-  addAbsence(assistantId: string, from: IsoDate, to: IsoDate, reason = ''): void {
-    if (!isValidIso(from) || !isValidIso(to)) return;
-    this._state.update((s) => ({
-      ...s,
-      absences: [
-        ...s.absences,
-        {
-          id: createId(),
-          assistantId,
-          from: from <= to ? from : to,
-          to: from <= to ? to : from,
-          reason: reason.trim() || undefined,
-        },
-      ],
-    }));
-  }
-
-  removeAbsence(id: string): void {
-    this._state.update((s) => ({ ...s, absences: s.absences.filter((a) => a.id !== id) }));
-  }
-
-  absencesOf(assistantId: string): Absence[] {
-    return this._state()
-      .absences.filter((a) => a.assistantId === assistantId)
-      .sort((a, b) => a.from.localeCompare(b.from));
-  }
-
-  // --- Verfügbarkeiten ------------------------------------------------------
-
-  setAvailability(assistantId: string, weekdayKey: string, value: Availability | undefined): void {
-    this._state.update((s) => {
-      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
-      if (value === undefined) delete forAssistant[weekdayKey];
-      else forAssistant[weekdayKey] = value;
-      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
-    });
-  }
-
-  /** Klick auf eine Zelle: unbeantwortet → Ja → Wenn es sein muss → Nein → unbeantwortet. */
-  cycleAvailability(assistantId: string, weekdayKey: string): void {
-    const current = this.getAvailability(assistantId, weekdayKey);
-    const next: Record<string, Availability | undefined> = {
-      undefined: 'yes',
-      yes: 'ifNeeded',
-      ifNeeded: 'no',
-      no: undefined,
-    };
-    this.setAvailability(assistantId, weekdayKey, next[String(current)]);
-  }
-
-  setAvailabilityForSlots(
-    assistantId: string,
-    weekdayKeys: string[],
-    value: Availability | undefined,
-  ): void {
-    this._state.update((s) => {
-      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
-      for (const key of weekdayKeys) {
-        if (value === undefined) delete forAssistant[key];
-        else forAssistant[key] = value;
-      }
-      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
-    });
-  }
-
   // --- Einteilung -----------------------------------------------------------
 
-  assignedTo(key: string): string[] {
+  assignedTo(key: SlotKeyLike): string[] {
     return this._state().assignments[key] ?? [];
   }
 
-  isAssigned(key: string, assistantId: string): boolean {
+  isAssigned(key: SlotKeyLike, assistantId: string): boolean {
     return this.assignedTo(key).includes(assistantId);
   }
 
-  toggleAssignment(key: string, assistantId: string): void {
+  toggleAssignment(key: SlotKeyLike, assistantId: string): void {
     this._state.update((s) => {
       const current = s.assignments[key] ?? [];
       const next = current.includes(assistantId)
@@ -698,22 +680,16 @@ export class ScheduleStore {
     });
   }
 
-  /** Überträgt die Einteilung einer Woche auf eine andere, Stunde für Stunde. */
-  copyWeek(sourceMonday: IsoDate, targetMonday: IsoDate): number {
-    const offset = Math.round(
-      (new Date(targetMonday).getTime() - new Date(sourceMonday).getTime()) / 86400000,
-    );
-    if (!offset) return 0;
+  /** Überträgt die Einteilung einer Woche auf eine andere, Stelle für Stelle. */
+  copyWeek(source: WeekKey, target: WeekKey): number {
+    if (source === target) return 0;
     let copied = 0;
     this._state.update((s) => {
       const assignments = { ...s.assignments };
-      for (const slot of this.slots()) {
-        if (startOfWeek(slot.date) !== sourceMonday) continue;
-        const ids = s.assignments[slot.key];
+      for (const slot of this.slotsOfWeek(target)) {
+        const ids = s.assignments[`${source}|${slot.weekdayKey}`];
         if (!ids?.length) continue;
-        const targetDate = addDays(slot.date, offset);
-        if (!this.isOpenAt(targetDate, slot.hour)) continue;
-        assignments[slotKey(targetDate, slot.hour)] = [...ids];
+        assignments[slot.key] = [...ids];
         copied++;
       }
       return { ...s, assignments };
@@ -721,21 +697,19 @@ export class ScheduleStore {
     return copied;
   }
 
-  clearAssignments(): void {
-    this._state.update((s) => ({ ...s, assignments: {} }));
-  }
-
-  clearWeek(monday: IsoDate): void {
+  clearWeek(week: WeekKey): void {
     this._state.update((s) => {
       const assignments = { ...s.assignments };
-      for (const slot of this.slots()) {
-        if (startOfWeek(slot.date) === monday) delete assignments[slot.key];
-      }
+      for (const slot of this.slotsOfWeek(week)) delete assignments[slot.key];
       return { ...s, assignments };
     });
   }
 
-  /** Entfernt Zuweisungen, die nicht mehr im Zeitraum oder in den Öffnungszeiten liegen. */
+  clearAssignments(): void {
+    this._state.update((s) => ({ ...s, assignments: {} }));
+  }
+
+  /** Entfernt Zuweisungen, die zu keinem aktuellen Wochenplan gehören. */
   pruneOrphanAssignments(): void {
     const valid = new Set(this.slots().map((s) => s.key));
     this._state.update((s) => {
@@ -757,3 +731,6 @@ export class ScheduleStore {
     this._state.set(createDefaultState());
   }
 }
+
+/** Slotschlüssel; als eigener Alias, damit Aufrufe lesbar bleiben. */
+type SlotKeyLike = string;

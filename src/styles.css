@@ -58,7 +58,10 @@ button {
   border-radius: 4px;
 }
 
-button:not(.ghost):not(.cell):not(.chip):not(.candidate):not(.remove):not(.col-action) {
+/* Primärer Button. Bewusst als eigene Klasse statt als `button:not(...)`-Kette:
+   eine solche Kette erreicht Spezifität 0-6-1 und überschreibt damit jede
+   Komponentenregel, auch die für aktive Reiter. */
+.btn {
   border: 1px solid var(--accent);
   background: var(--accent);
   color: #fff;
@@ -121,12 +124,15 @@ button:not(.ghost):not(.cell):not(.chip):not(.candidate):not(.remove):not(.col-a
   /* Achtung: die Rasterzellen sind selbst Buttons. Deshalb wird gezielt nur
      das Bedienzubehör ausgeblendet, nicht `button` pauschal. */
   .hint,
-  .ghost {
+  .ghost,
+  .btn {
     display: none !important;
   }
 
+  /* Übrig bleiben die Rasterzellen: sie sollen wie Text wirken, nicht wie
+     Schaltflächen. `!important`, weil Komponentenregeln sonst gewinnen. */
   button {
-    border: none;
+    border: none !important;
     background: none;
     padding: 0;
   }

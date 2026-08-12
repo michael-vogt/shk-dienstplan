@@ -35,6 +35,42 @@ tr.closed {
   flex-wrap: wrap;
 }
 
+.modes {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.mode {
+  flex: 1 1 15rem;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 5px;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.mode.active {
+  border-color: var(--accent);
+  background: #f1f5fa;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.mode-title {
+  font-weight: 600;
+}
+.mode-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.mode-summary {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0.75rem 0 0;
+}
+
 .sub {
   font-size: 0.78rem;
   text-transform: uppercase;
@@ -65,66 +101,6 @@ tr.closed {
   font-size: 0.85rem;
   color: var(--muted);
   padding-bottom: 0.4rem;
-}
-.add-exception {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.75rem;
-}
-.add-exception input[type='date'] {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 0.35rem 0.5rem;
-  font: inherit;
-}
-.exceptions {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.exceptions li {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.88rem;
-}
-.exceptions .date {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.exceptions .spacer {
-  flex: 1 1 auto;
-}
-.badge {
-  font-size: 0.78rem;
-  background: var(--surface-2);
-  border-radius: 3px;
-  padding: 0.1rem 0.4rem;
-}
-.badge input[type='number'] {
-  width: 3.4rem;
-}
-.closed-badge {
-  background: #ece1e1;
-  color: #8a3a3a;
-}
-.note {
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-.warn-note {
-  color: #8a3a3a;
-}
-li.weekend .date {
-  color: var(--muted);
 }
 .empty {
   color: var(--muted);
