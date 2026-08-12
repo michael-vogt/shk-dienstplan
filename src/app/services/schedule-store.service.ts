@@ -680,6 +680,44 @@ export class ScheduleStore {
     });
   }
 
+  /**
+   * Deckungsgrad einer Hilfskraft über mehrere Slots. Grundlage für die
+   * Darstellung eines Blocks: ganz, teilweise oder gar nicht eingeteilt.
+   */
+  assignmentCoverage(keys: SlotKeyLike[], assistantId: string): 'none' | 'some' | 'all' {
+    if (!keys.length) return 'none';
+    let assigned = 0;
+    for (const key of keys) {
+      if (this.isAssigned(key, assistantId)) assigned++;
+    }
+    if (!assigned) return 'none';
+    return assigned === keys.length ? 'all' : 'some';
+  }
+
+  /**
+   * Setzt oder entfernt eine Hilfskraft über einen ganzen Block. Teilweise
+   * belegte Blöcke werden aufgefüllt, nicht geleert — das ist beim
+   * Nachbessern einer Schicht die erwartete Richtung.
+   */
+  toggleAssignmentForSlots(keys: SlotKeyLike[], assistantId: string): void {
+    if (!keys.length) return;
+    const assign = this.assignmentCoverage(keys, assistantId) !== 'all';
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+      for (const key of keys) {
+        const current = assignments[key] ?? [];
+        if (assign) {
+          if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
+        } else {
+          const next = current.filter((id) => id !== assistantId);
+          if (next.length) assignments[key] = next;
+          else delete assignments[key];
+        }
+      }
+      return { ...s, assignments };
+    });
+  }
+
   /** Überträgt die Einteilung einer Woche auf eine andere, Stelle für Stelle. */
   copyWeek(source: WeekKey, target: WeekKey): number {
     if (source === target) return 0;

@@ -38,6 +38,9 @@
 .cell {
   width: 100%;
   min-height: 2.6rem;
+  /* Kein border-radius: die globale Button-Regel rundet sonst jede Zelle,
+     wodurch der Blockrahmen in einzelne Segmente zerfällt. */
+  border-radius: 0;
   border: 2px solid transparent;
   background: #fff;
   cursor: pointer;
@@ -46,9 +49,6 @@
   gap: 0.2rem;
   padding: 0.25rem;
   text-align: left;
-}
-.cell.selected {
-  border-color: var(--accent);
 }
 .cell.empty-slot {
   background: #fbfaf7;
@@ -292,6 +292,69 @@ td.closed {
 .grid thead th.today {
   background: #e8eff7;
   box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* Der markierte Block wird über box-shadow gezeichnet, nicht über border:
+   die Tabelle nutzt border-collapse, dort überdeckt die graue Trennlinie
+   jeden Zellenrahmen und der Block zerfiele in Segmente. Der Schatten liegt
+   innerhalb der Zelle und stößt zeilenübergreifend lückenlos aneinander. */
+.cell.selected {
+  background: #e8eff7;
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset -2px 0 0 var(--accent);
+}
+.cell.selected.block-start {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset -2px 0 0 var(--accent),
+    inset 0 2px 0 var(--accent);
+}
+.cell.selected.block-end {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset -2px 0 0 var(--accent),
+    inset 0 -2px 0 var(--accent);
+}
+/* Einzelne Stunde: Anfang und Ende zugleich, also ringsum. */
+.cell.selected.block-start.block-end {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+/* Ist eine markierte Zelle zugleich fehlerhaft, gewinnt die Fehlermarkierung
+   den Rahmen — die Markierung bleibt am helleren Hintergrund erkennbar. */
+.cell.selected.has-error,
+.cell.selected.block-start.has-error,
+.cell.selected.block-end.has-error,
+.cell.selected.block-start.block-end.has-error {
+  box-shadow: inset 0 0 0 2px var(--error);
+}
+.block-size {
+  font-size: 0.72rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent);
+  margin-left: 0.4rem;
+}
+.coverage {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-left: auto;
+  margin-right: 0.35rem;
+}
+.candidate.on .coverage {
+  color: rgba(255, 255, 255, 0.8);
+}
+.candidate.partial {
+  background: #eef3f9;
+}
+.a-mixed {
+  background: #e4e9ef;
+  color: #3c4a5a;
+}
+.select-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 0.5rem 0 0;
 }
 
 .scope-note {

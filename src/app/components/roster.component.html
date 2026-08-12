@@ -90,10 +90,14 @@
                       <button
                         type="button"
                         class="cell"
-                        [class.selected]="selectedKey() === key(day, hour)"
+                        [class.selected]="isSelected(day, hour)"
+                        [class.block-start]="isBlockStart(day, hour)"
+                        [class.block-end]="isBlockEnd(day, hour)"
                         [class.empty-slot]="!assignedFor(selectedWeek(), day, hour).length"
                         [class.has-error]="levelFor(day, hour) === 'error'"
-                        (click)="select(day, hour)"
+                        (click)="select(day, hour, $event)"
+                        (keydown.shift.arrowup)="extend(-1, $event)"
+                        (keydown.shift.arrowdown)="extend(1, $event)"
                       >
                         @for (assistant of assignedFor(selectedWeek(), day, hour);
                           track assistant.id) {
@@ -117,7 +121,12 @@
 
       <aside class="side">
         @if (selectedSlotLabel(); as label) {
-          <h3>{{ label }}</h3>
+          <h3>
+            {{ label }}
+            @if (blockLength() > 1) {
+              <span class="block-size">{{ blockLength() }} Stunden</span>
+            }
+          </h3>
           @if (!candidates().length) {
             <p class="empty">Noch keine Hilfskräfte angelegt.</p>
           } @else {
@@ -127,21 +136,32 @@
                   <button
                     type="button"
                     class="candidate"
-                    [class.on]="candidate.assigned"
+                    [class.on]="candidate.coverage === 'all'"
+                    [class.partial]="candidate.coverage === 'some'"
                     [style.--chip]="candidate.assistant.color"
                     (click)="toggle(candidate.assistant.id)"
                   >
                     <span class="name">{{ candidate.assistant.name }}</span>
-                    <span [class]="'answer a-' + (candidate.answer ?? 'unset')">
+                    @if (coverageLabel(candidate); as coverage) {
+                      <span class="coverage">{{ coverage }}</span>
+                    }
+                    <span [class]="'answer ' + answerClass(candidate)">
                       {{ answerLabel(candidate) }}
                     </span>
                   </button>
                 </li>
               }
             </ul>
+            <p class="select-hint">
+              Umschalt-Klick erweitert die Markierung auf einen Block, solange sie in derselben
+              Spalte bleibt.
+            </p>
           }
         } @else {
-          <p class="empty">Eine Stunde im Raster auswählen.</p>
+          <p class="empty">
+            Eine Stunde im Raster auswählen. Mit Umschalt-Klick lässt sich ein Block aus mehreren
+            Stunden desselben Tages markieren.
+          </p>
         }
 
         <h3>

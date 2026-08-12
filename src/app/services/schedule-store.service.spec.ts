@@ -215,6 +215,52 @@ describe('Einteilung', () => {
   });
 });
 
+describe('Blockzuweisung', () => {
+  const BLOCK = ['semester|1-9', 'semester|1-10', 'semester|1-11'];
+
+  it('meldet den Deckungsgrad über mehrere Slots', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('some');
+    expect(store.assignmentCoverage(BLOCK, 'a2')).toBe('none');
+    expect(store.assignmentCoverage(['semester|1-9'], 'a1')).toBe('all');
+  });
+
+  it('teilt eine Hilfskraft dem ganzen Block zu', () => {
+    const store = makeStore(semester());
+    store.toggleAssignmentForSlots(BLOCK, 'a1');
+    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('all');
+  });
+
+  it('füllt einen teilweise belegten Block auf, statt ihn zu leeren', () => {
+    // Beim Nachbessern einer Schicht ist das die erwartete Richtung.
+    const store = makeStore(semester({ assignments: { 'semester|1-10': ['a1'] } }));
+    store.toggleAssignmentForSlots(BLOCK, 'a1');
+    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('all');
+  });
+
+  it('entfernt die Hilfskraft, wenn sie den Block vollständig belegt', () => {
+    const store = makeStore(semester());
+    store.toggleAssignmentForSlots(BLOCK, 'a1');
+    store.toggleAssignmentForSlots(BLOCK, 'a1');
+    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('none');
+  });
+
+  it('lässt andere Hilfskräfte im Block unberührt', () => {
+    // Überlappende Schichten sind ausdrücklich erlaubt.
+    const store = makeStore(semester({ assignments: { 'semester|1-10': ['a2'] } }));
+    store.toggleAssignmentForSlots(BLOCK, 'a1');
+    expect(store.assignedTo('semester|1-10')).toEqual(['a2', 'a1']);
+    store.toggleAssignmentForSlots(BLOCK, 'a1');
+    expect(store.assignedTo('semester|1-10')).toEqual(['a2']);
+  });
+
+  it('verkraftet einen leeren Block', () => {
+    const store = makeStore(semester());
+    store.toggleAssignmentForSlots([], 'a1');
+    expect(store.assignmentCoverage([], 'a1')).toBe('none');
+  });
+});
+
 describe('Moduswechsel', () => {
   it('behält die Daten beider Modi, sodass der Wechsel umkehrbar ist', () => {
     const store = makeStore(
