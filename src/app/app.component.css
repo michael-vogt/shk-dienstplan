@@ -68,3 +68,38 @@ footer {
   font-size: 0.78rem;
   color: var(--muted);
 }
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  :host {
+    max-width: none;
+    padding: 0;
+  }
+  .app-head {
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+  .title input,
+  .meta,
+  .actions,
+  .steps,
+  .import-error,
+  footer {
+    display: none;
+  }
+  .print-only {
+    display: block;
+  }
+  h1.print-only {
+    margin: 0;
+    font-size: 15pt;
+  }
+  .stand {
+    margin: 0.2rem 0 0;
+    font-size: 9pt;
+    color: var(--muted);
+  }
+}

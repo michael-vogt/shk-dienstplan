@@ -19,6 +19,13 @@ export class AppComponent {
   readonly step = signal<Step>('hours');
   readonly importError = signal<string | null>(null);
 
+  /** Erscheint nur im Ausdruck, dmit am Aushang steht, wie aktuell er ist. */
+  readonly today = new Date().toLocaleDateString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+
   setTitle(event: Event): void {
     this.store.setTitle((event.target as HTMLInputElement).value);
   }

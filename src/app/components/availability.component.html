@@ -1,0 +1,148 @@
+<section class="panel">
+  <header class="panel-head">
+    <h2>Verfügbarkeiten</h2>
+    <p class="hint">
+      Gilt wiederkehrend für jeden Wochentag im Zeitraum. Klick auf eine Stunde wechselt:
+      offen → Ja → Wenn es sein muss → Nein. Einzelne Ausfälle unten als Abwesenheit eintragen.
+    </p>
+  </header>
+
+  <div class="staff">
+    <div class="add">
+      <input
+        #nameInput
+        type="text"
+        placeholder="Name der Hilfskraft"
+        (keydown.enter)="add(nameInput)"
+      />
+      <button type="button" (click)="add(nameInput)">Hinzufügen</button>
+    </div>
+
+    @if (store.assistants().length) {
+      <ul class="chips">
+        @for (assistant of store.assistants(); track assistant.id) {
+          <li>
+            <button
+              type="button"
+              class="chip"
+              [class.active]="assistant.id === selectedId()"
+              [style.--chip]="assistant.color"
+              (click)="selectedId.set(assistant.id)"
+            >
+              {{ assistant.name }}
+              <span class="count">{{ answeredCount(assistant.id) }}/{{ weekdaySlotCount() }}</span>
+            </button>
+            <button
+              type="button"
+              class="remove"
+              [attr.aria-label]="assistant.name + ' entfernen'"
+              (click)="remove(assistant.id, assistant.name)"
+            >
+              ×
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  </div>
+
+  @if (!store.assistants().length) {
+    <p class="empty">Erst eine Hilfskraft anlegen, dann lassen sich die Zeiten eintragen.</p>
+  } @else if (!hourRows().length) {
+    <p class="empty">Noch keine Öffnungszeiten festgelegt — Schritt 1 fehlt.</p>
+  } @else {
+    <div class="bulk">
+      Ganze Woche:
+      <button type="button" class="ghost" (click)="setAll('yes')">Ja</button>
+      <button type="button" class="ghost" (click)="setAll('ifNeeded')">Wenn es sein muss</button>
+      <button type="button" class="ghost" (click)="setAll('no')">Nein</button>
+      <button type="button" class="ghost" (click)="setAll(undefined)">Zurücksetzen</button>
+    </div>
+
+    <div class="grid-scroll">
+      <table class="grid">
+        <thead>
+        <tr>
+          <th class="corner">Uhrzeit</th>
+          @for (day of openWeekdays(); track day) {
+            <th>
+              {{ short(day) }}
+              <button type="button" class="col-action" (click)="setColumn(day, 'yes')">
+                alle Ja
+              </button>
+            </th>
+          }
+        </tr>
+        </thead>
+        <tbody>
+          @for (hour of hourRows(); track hour) {
+            <tr>
+              <th scope="row" class="time">{{ time(hour) }}</th>
+              @for (day of openWeekdays(); track day) {
+                @if (isOpen(day, hour)) {
+                  <td>
+                    <button
+                      type="button"
+                      [class]="'cell state-' + (answer(day, hour) ?? 'unset')"
+                      [attr.title]="cellTitle(day, hour)"
+                      (click)="cycle(day, hour)"
+                    >
+                      {{ cellLabel(day, hour) }}
+                    </button>
+                  </td>
+                } @else {
+                  <td class="closed"></td>
+                }
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="legend">
+      <li><span class="swatch state-yes"></span> Ja</li>
+      <li><span class="swatch state-ifNeeded"></span> Wenn es sein muss</li>
+      <li><span class="swatch state-no"></span> Nein</li>
+      <li><span class="swatch state-unset"></span> Noch offen</li>
+    </ul>
+
+    <h3 class="sub">Abwesenheiten</h3>
+    <p class="hint">
+      Überschreibt die Wochentagsantwort an diesen Terminen — für Urlaub, Klausuren oder Krankheit.
+    </p>
+
+    <div class="add-absence">
+      <input #absenceFrom type="date" aria-label="Abwesend von" />
+      <input #absenceTo type="date" aria-label="Abwesend bis" />
+      <input #absenceReason type="text" placeholder="Grund (optional)" />
+      <button type="button" (click)="addAbsence(absenceFrom, absenceTo, absenceReason)">
+        Eintragen
+      </button>
+    </div>
+
+    @if (absencesOfSelected().length) {
+      <ul class="absences">
+        @for (absence of absencesOfSelected(); track absence.id) {
+          <li>
+            <span class="range">
+              {{ formatDateLong(absence.from) }}
+              @if (absence.to !== absence.from) {
+                – {{ formatDateLong(absence.to) }}
+              }
+            </span>
+            @if (absence.reason) {
+              <span class="note">{{ absence.reason }}</span>
+            }
+            <span class="spacer"></span>
+            <button type="button" class="ghost" (click)="store.removeAbsence(absence.id)">
+              Entfernen
+            </button>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="empty">Keine Abwesenheiten eingetragen.</p>
+    }
+  }
+</section>

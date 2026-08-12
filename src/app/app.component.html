@@ -1,5 +1,8 @@
 <header class="app-head">
   <div class="title">
+    <!-- Im Druck steht der Titel als Überschrift, nicht als Eingabefeld. -->
+    <h1 class="print-only">{{ store.title() }}</h1>
+    <p class="print-only stand">Stand: {{ today }}</p>
     <input
       type="text"
       [value]="store.title()"

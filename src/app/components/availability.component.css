@@ -1,0 +1,241 @@
+.staff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.add {
+  display: flex;
+  gap: 0.5rem;
+}
+.add input {
+  flex: 1 1 14rem;
+  max-width: 20rem;
+}
+.chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  margin: 0;
+}
+.chips li {
+  display: flex;
+  align-items: stretch;
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--chip);
+  background: #fff;
+  border-radius: 4px 0 0 4px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+.chip.active {
+  background: var(--chip);
+  color: #fff;
+  border-color: var(--chip);
+}
+.chip .count {
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.remove {
+  border: 1px solid var(--line);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  background: #fff;
+  padding: 0 0.5rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+.remove:hover {
+  color: var(--error);
+}
+.bulk {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.grid-scroll {
+  overflow-x: auto;
+}
+.grid {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 32rem;
+}
+.grid th,
+.grid td {
+  border: 1px solid var(--line);
+  padding: 0;
+}
+.grid thead th {
+  padding: 0.4rem;
+  font-size: 0.8rem;
+  background: var(--surface-2);
+}
+.col-action {
+  display: block;
+  margin: 0.2rem auto 0;
+  font-size: 0.65rem;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.time {
+  padding: 0 0.5rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: var(--surface-2);
+}
+.cell {
+  width: 100%;
+  min-height: 2.1rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.state-yes {
+  background: #d6ece0;
+  color: #14563a;
+}
+.state-ifNeeded {
+  background: #f7e5c2;
+  color: #7a4c05;
+}
+.state-no {
+  background: #ece1e1;
+  color: #8a3a3a;
+}
+.state-unset {
+  background: #fff;
+  color: var(--muted);
+}
+td.closed {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--surface-2),
+    var(--surface-2) 4px,
+    #fff 4px,
+    #fff 8px
+  );
+}
+.legend {
+  list-style: none;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.swatch {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 1px solid var(--line);
+  display: inline-block;
+}
+.empty {
+  color: var(--muted);
+}
+
+.sub {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 1.5rem 0 0.4rem;
+}
+.add-absence {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.add-absence input[type='date'] {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+.absences {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.absences li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.88rem;
+}
+.absences .range {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.absences .note {
+  color: var(--muted);
+}
+.absences .spacer {
+  flex: 1 1 auto;
+}
+
+/* --- Druck ---------------------------------------------------------------
+   Sinnvoll als Kontrollausdruck für die Rücksprache mit einer Hilfskraft:
+   Auswahlleiste und Legende bleiben, alles Anklickbare verschwindet. */
+@media print {
+  .add,
+  .bulk,
+  .remove,
+  .col-action {
+    display: none;
+  }
+  .chips li:not(:has(.chip.active)) {
+    display: none;
+  }
+  .chip.active {
+    background: #fff;
+    color: var(--ink);
+    border-radius: 4px;
+  }
+  .chip.active .count {
+    color: var(--muted);
+  }
+  .grid-scroll {
+    overflow: visible;
+  }
+  .grid {
+    min-width: 0;
+  }
+  thead {
+    display: table-header-group;
+  }
+}

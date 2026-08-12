@@ -1,0 +1,141 @@
+.hours {
+  width: 100%;
+  border-collapse: collapse;
+}
+.hours th,
+.hours td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.hours thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.hours tbody th {
+  font-weight: 600;
+}
+.hours input[type='number'] {
+  width: 4.5rem;
+}
+tr.closed {
+  color: var(--muted);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.summary {
+  margin-top: 1rem;
+  color: var(--muted);
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sub {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 1.5rem 0 0.5rem;
+}
+.period {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.period label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.period input {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+.period-info {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding-bottom: 0.4rem;
+}
+.add-exception {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.add-exception input[type='date'] {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+.exceptions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.exceptions li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.88rem;
+}
+.exceptions .date {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.exceptions .spacer {
+  flex: 1 1 auto;
+}
+.badge {
+  font-size: 0.78rem;
+  background: var(--surface-2);
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+}
+.badge input[type='number'] {
+  width: 3.4rem;
+}
+.closed-badge {
+  background: #ece1e1;
+  color: #8a3a3a;
+}
+.note {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.warn-note {
+  color: #8a3a3a;
+}
+li.weekend .date {
+  color: var(--muted);
+}
+.empty {
+  color: var(--muted);
+}
+
+@media print {
+  .summary {
+    display: none;
+  }
+  .hours input[type='number'] {
+    border: none;
+    padding: 0;
+  }
+}

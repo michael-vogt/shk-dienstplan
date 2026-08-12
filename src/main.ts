@@ -1,6 +1,8 @@
+import { provideBrowserGlobalErrorListeners } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
-import { App } from './app/app';
+import { AppComponent } from './app/app.component';
 
-bootstrapApplication(App, appConfig)
-  .catch((err) => console.error(err));
+// Kein provideZonelessChangeDetection nötig: seit v21 ist zoneless der Standard.
+bootstrapApplication(AppComponent, {
+  providers: [provideBrowserGlobalErrorListeners()],
+}).catch((err) => console.error(err));

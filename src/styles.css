@@ -1,1 +1,138 @@
-/* You can add global styles to this file, and also import other style files */
+:root {
+  --ink: #1c2434;
+  --muted: #6b7480;
+  --line: #d9dde3;
+  --surface: #ffffff;
+  --surface-2: #f1f3f6;
+  --accent: #2d5d8f;
+  --error: #b02a2a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f6f7f9;
+  color: var(--ink);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  line-height: 1.25;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1.25rem;
+}
+
+.panel-head h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.hint {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+input[type='text'],
+input[type='number'] {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  background: #fff;
+  color: inherit;
+}
+
+button {
+  font: inherit;
+  border-radius: 4px;
+}
+
+button:not(.ghost):not(.cell):not(.chip):not(.candidate):not(.remove):not(.col-action) {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+.ghost {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ghost.warn:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* --- Druck ---------------------------------------------------------------
+   Gedruckt wird das, was am schwarzen Brett hängt: das Raster. Bedienelemente
+   verschwinden, Farben werden erzwungen (Browser sparen sie beim Druck sonst
+   ein, und ohne sie ist nicht mehr erkennbar, wer wann eingeteilt ist). */
+@page {
+  size: A4 landscape;
+  margin: 12mm;
+}
+
+@media print {
+  body {
+    background: #fff;
+    font-size: 10pt;
+  }
+
+  .panel {
+    border: none;
+    border-radius: 0;
+    padding: 0;
+  }
+
+  /* Achtung: die Rasterzellen sind selbst Buttons. Deshalb wird gezielt nur
+     das Bedienzubehör ausgeblendet, nicht `button` pauschal. */
+  .hint,
+  .ghost {
+    display: none !important;
+  }
+
+  button {
+    border: none;
+    background: none;
+    padding: 0;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

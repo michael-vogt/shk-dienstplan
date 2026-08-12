@@ -1,0 +1,151 @@
+<section class="panel">
+  <header class="panel-head">
+    <h2>Zeitraum und Öffnungszeiten</h2>
+    <p class="hint">
+      Aus Zeitraum, Wochentagsstandard und Ausnahmen ergeben sich die konkreten Termine, die
+      geplant werden.
+    </p>
+  </header>
+
+  <div class="period">
+    <label>
+      Von
+      <input type="date" [value]="store.period().start" (change)="setPeriodStart($event)" />
+    </label>
+    <label>
+      Bis
+      <input type="date" [value]="store.period().end" (change)="setPeriodEnd($event)" />
+    </label>
+    <span class="period-info">
+      {{ store.openDates().length }} Öffnungstage, {{ store.slots().length }} Stunden
+    </span>
+  </div>
+
+  <h3 class="sub">Standard je Wochentag</h3>
+  <table class="hours">
+    <thead>
+    <tr>
+      <th>Tag</th>
+      <th>Geöffnet</th>
+      <th>Von</th>
+      <th>Bis</th>
+      <th>Stunden</th>
+      <th></th>
+    </tr>
+    </thead>
+    <tbody>
+      @for (day of store.openingHours(); track day.weekday) {
+        <tr [class.closed]="!day.open">
+          <th scope="row">{{ label(day.weekday) }}</th>
+          <td>
+            <input
+              type="checkbox"
+              [checked]="day.open"
+              [attr.aria-label]="label(day.weekday) + ' geöffnet'"
+              (change)="setOpen(day.weekday, $event)"
+            />
+          </td>
+          <td>
+            <input
+              type="number"
+              min="0"
+              max="23"
+              [value]="day.start"
+              [disabled]="!day.open"
+              (change)="setStart(day.weekday, $event)"
+            />
+          </td>
+          <td>
+            <input
+              type="number"
+              min="1"
+              max="24"
+              [value]="day.end"
+              [disabled]="!day.open"
+              (change)="setEnd(day.weekday, $event)"
+            />
+          </td>
+          <td class="num">{{ day.open ? day.end - day.start : 0 }}</td>
+          <td>
+            <button type="button" class="ghost" (click)="store.applyToAllWeekdays(day.weekday)">
+              Auf alle Tage übertragen
+            </button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+
+  <h3 class="sub">Ausnahmen an einzelnen Terminen</h3>
+  <p class="hint">Feiertage, Brückentage oder verkürzte Öffnung — gilt nur für dieses Datum.</p>
+
+  <div class="add-exception">
+    <input #exceptionDate type="date" aria-label="Datum der Ausnahme" />
+    <input #exceptionNote type="text" placeholder="Grund (optional)" />
+    <button type="button" (click)="addException(exceptionDate, exceptionNote)">
+      Als geschlossen eintragen
+    </button>
+  </div>
+
+  @if (store.exceptions().length) {
+    <ul class="exceptions">
+      @for (exception of store.exceptions(); track exception.date) {
+        <li [class.weekend]="isWeekend(exception.date)">
+          <span class="date">
+            {{ weekdayShort(exception.date) }} {{ formatDateLong(exception.date) }}
+          </span>
+
+          @if (exception.closed) {
+            <span class="badge closed-badge">geschlossen</span>
+          } @else {
+            <span class="badge">
+              <input
+                type="number"
+                min="0"
+                max="23"
+                [value]="exception.start ?? 9"
+                aria-label="Von"
+                (change)="setExceptionStart(exception, $event)"
+              />
+              –
+              <input
+                type="number"
+                min="1"
+                max="24"
+                [value]="exception.end ?? 18"
+                aria-label="Bis"
+                (change)="setExceptionEnd(exception, $event)"
+              />
+              Uhr
+            </span>
+          }
+
+          @if (exception.note) {
+            <span class="note">{{ exception.note }}</span>
+          }
+          @if (isWeekend(exception.date)) {
+            <span class="note warn-note">fällt aufs Wochenende, ohne Wirkung</span>
+          }
+
+          <span class="spacer"></span>
+          <button type="button" class="ghost" (click)="toggleExceptionMode(exception)">
+            {{ exception.closed ? 'Stattdessen andere Zeiten' : 'Stattdessen geschlossen' }}
+          </button>
+          <button type="button" class="ghost" (click)="store.removeException(exception.date)">
+            Entfernen
+          </button>
+        </li>
+      }
+    </ul>
+  } @else {
+    <p class="empty">Keine Ausnahmen eingetragen.</p>
+  }
+
+  @if (store.hasOrphanAssignments()) {
+    <p class="summary">
+      <button type="button" class="ghost warn" (click)="store.pruneOrphanAssignments()">
+        Zuweisungen außerhalb von Zeitraum und Öffnungszeiten entfernen
+      </button>
+    </p>
+  }
+</section>

@@ -1,0 +1,149 @@
+<section class="panel">
+  <header class="panel-head">
+    <h2>Dienstplan</h2>
+    <p class="hint">
+      Stunde auswählen, dann rechts die Hilfskräfte zuschalten. Mehrfachbesetzung ist möglich.
+    </p>
+  </header>
+
+  @if (!store.weeks().length) {
+    <p class="empty">Keine Öffnungstage im Zeitraum — Schritt 1 prüfen.</p>
+  } @else {
+    <nav class="weeks">
+      @for (week of store.weeks(); track week.monday) {
+        <button
+          type="button"
+          [class.active]="week.monday === selectedMonday()"
+          (click)="selectedMonday.set(week.monday)"
+        >
+          {{ week.label }}
+          <span class="week-range">ab {{ formatDate(week.monday) }}</span>
+        </button>
+      }
+    </nav>
+
+    <div class="week-tools">
+      @if (otherWeeks().length) {
+        <label>
+          Einteilung übernehmen aus
+          <select (change)="copyFrom($event)">
+            <option value="">– Woche wählen –</option>
+            @for (week of otherWeeks(); track week.monday) {
+              <option [value]="week.monday">{{ week.label }}</option>
+            }
+          </select>
+        </label>
+      }
+      <span class="spacer"></span>
+      <button type="button" class="ghost" (click)="clearWeek()">Woche leeren</button>
+      <button type="button" class="ghost" (click)="clearAll()">Alles leeren</button>
+    </div>
+
+    <div class="layout">
+      <div class="grid-scroll">
+        <table class="grid">
+          <thead>
+          <tr>
+            <th class="corner">Uhrzeit</th>
+            @for (date of weekDates(); track date) {
+              <th>
+                {{ short(date) }}
+                <span class="date">{{ formatDate(date) }}</span>
+              </th>
+            }
+          </tr>
+          </thead>
+          <tbody>
+            @for (hour of hourRows(); track hour) {
+              <tr>
+                <th scope="row" class="time">{{ time(hour) }}</th>
+                @for (date of weekDates(); track date) {
+                  @if (isOpen(date, hour)) {
+                    <td>
+                      <button
+                        type="button"
+                        class="cell"
+                        [class.selected]="selectedKey() === key(date, hour)"
+                        [class.empty-slot]="!assignedFor(date, hour).length"
+                        [class.has-error]="levelFor(date, hour) === 'error'"
+                        (click)="select(date, hour)"
+                      >
+                        @for (assistant of assignedFor(date, hour); track assistant.id) {
+                          <span class="pill" [style.background]="assistant.color">
+                            {{ assistant.name }}
+                          </span>
+                        } @empty {
+                          <span class="placeholder">frei</span>
+                        }
+                      </button>
+                    </td>
+                  } @else {
+                    <td class="closed"></td>
+                  }
+                }
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <aside class="side">
+        @if (selectedSlotLabel(); as label) {
+          <h3>{{ label }}</h3>
+          @if (!candidates().length) {
+            <p class="empty">Noch keine Hilfskräfte angelegt.</p>
+          } @else {
+            <ul class="candidates">
+              @for (candidate of candidates(); track candidate.assistant.id) {
+                <li>
+                  <button
+                    type="button"
+                    class="candidate"
+                    [class.on]="candidate.assigned"
+                    [style.--chip]="candidate.assistant.color"
+                    (click)="toggle(candidate.assistant.id)"
+                  >
+                    <span class="name">{{ candidate.assistant.name }}</span>
+                    <span [class]="'answer ' + answerClass(candidate)">
+                      {{ answerLabel(candidate) }}
+                    </span>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        } @else {
+          <p class="empty">Eine Stunde im Raster auswählen.</p>
+        }
+
+        <h3>Stunden je Hilfskraft</h3>
+        <ul class="hours">
+          @for (assistant of store.assistants(); track assistant.id) {
+            <li>
+              <span class="dot" [style.background]="assistant.color"></span>
+              <span class="name">{{ assistant.name }}</span>
+              <span class="num">{{ store.hoursByAssistant()[assistant.id] }} h</span>
+            </li>
+          } @empty {
+            <li class="empty">—</li>
+          }
+        </ul>
+      </aside>
+    </div>
+
+    <div class="warnings">
+      <div class="warnings-head">
+        <h3>Hinweise im gesamten Zeitraum ({{ store.warnings().length }})</h3>
+      </div>
+      @if (!store.warnings().length) {
+        <p class="ok">Jede Stunde ist besetzt, keine Konflikte.</p>
+      } @else {
+        <ul>
+          @for (warning of store.warnings(); track $index) {
+            <li [class]="'w-' + warning.level">{{ warning.message }}</li>
+          }
+        </ul>
+      }
+    </div>
+  }
+</section>
