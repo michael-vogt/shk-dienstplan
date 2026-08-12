@@ -1,0 +1,67 @@
+<header class="app-head">
+  <div class="title">
+    <input
+      type="text"
+      [value]="store.title()"
+      aria-label="Titel des Dienstplans"
+      (change)="setTitle($event)"
+    />
+    <span class="meta">
+      {{ store.assignedCount() }} von {{ store.slots().length }} Stunden besetzt
+    </span>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="ghost" (click)="exporter.exportRosterCsv()">
+      Dienstplan als CSV
+    </button>
+    <button type="button" class="ghost" (click)="exporter.exportAvailabilityCsv()">
+      Verfügbarkeiten als CSV
+    </button>
+    <button type="button" class="ghost" (click)="exporter.exportJson()">Daten sichern</button>
+    <button type="button" class="ghost" (click)="fileInput.click()">Daten laden</button>
+    <input
+      #fileInput
+      type="file"
+      accept="application/json"
+      hidden
+      (change)="importFile($event)"
+    />
+  </div>
+</header>
+
+@if (importError(); as error) {
+  <p class="import-error">{{ error }}</p>
+}
+
+<nav class="steps">
+  <button type="button" [class.active]="step() === 'hours'" (click)="step.set('hours')">
+    1 · Öffnungszeiten
+  </button>
+  <button
+    type="button"
+    [class.active]="step() === 'availability'"
+    (click)="step.set('availability')"
+  >
+    2 · Verfügbarkeiten
+  </button>
+  <button type="button" [class.active]="step() === 'roster'" (click)="step.set('roster')">
+    3 · Dienstplan
+  </button>
+</nav>
+
+<main>
+  @switch (step()) {
+    @case ('hours') {
+      <app-opening-hours />
+    }
+    @case ('availability') {
+      <app-availability />
+    }
+    @case ('roster') {
+      <app-roster />
+    }
+  }
+</main>
+
+<footer>Alle Daten bleiben in diesem Browser. Zum Übertragen „Daten sichern" nutzen.</footer>
