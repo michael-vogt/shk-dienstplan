@@ -13,6 +13,7 @@ import {
   formatDate,
   formatDateLong,
   formatHour,
+  shiftBlockHours,
   slotKey,
   startOfWeek,
   toIso,
@@ -263,6 +264,180 @@ export class RosterComponent {
 
   toggle(assistantId: string): void {
     this.store.toggleAssignmentForSlots(this.selectedKeys(), assistantId);
+  }
+
+  // --- Ziehen und Ablegen ---------------------------------------------------
+
+  /**
+   * Läuft gerade ein Ziehvorgang? `fromKey` ist gesetzt, wenn die Hilfskraft
+   * aus einer bereits belegten Stunde stammt — dann wird verschoben statt
+   * hinzugefügt.
+   */
+  readonly dragged = signal<{
+    assistantId: string;
+    fromKey: string | null;
+    /** Stunden der zu verschiebenden Schicht, aufsteigend. */
+    sourceHours: number[];
+    /** Wievielte Stunde der Schicht wurde angefasst? Hält den Griffpunkt. */
+    grabOffset: number;
+  } | null>(null);
+
+  /** Stunde, über der der Zeiger gerade schwebt — nur für die Hervorhebung. */
+  readonly dropTarget = signal<string | null>(null);
+
+  /**
+   * Beginnt einen Ziehvorgang. Gehört die angefasste Stunde zum markierten
+   * Block und ist die Person dort eingeteilt, wandert die ganze Schicht mit;
+   * der Griffpunkt sorgt dafür, dass sie beim Ablegen nicht verspringt.
+   */
+  startDrag(assistantId: string, fromKey: string | null, event: DragEvent): void {
+    let sourceHours: number[] = [];
+    let grabOffset = 0;
+
+    if (fromKey) {
+      const slot = this.store.slots().find((s) => s.key === fromKey);
+      const block = this.selectedSlots();
+      const inBlock =
+        !!slot &&
+        block.some((b) => b.key === fromKey) &&
+        block.every((b) => this.store.isAssigned(b.key, assistantId));
+
+      if (slot && inBlock) {
+        sourceHours = block.map((b) => b.hour);
+        grabOffset = Math.max(0, sourceHours.indexOf(slot.hour));
+      } else if (slot) {
+        sourceHours = [slot.hour];
+      }
+    }
+
+    this.dragged.set({ assistantId, fromKey, sourceHours, grabOffset });
+    if (event.dataTransfer) {
+      // Immer 'copyMove': ist hier nur 'copy' erlaubt, verwirft der Browser
+      // jeden Abwurf, bei dem dropEffect auf 'move' steht — der Name wandert
+      // dann sichtbar mit, ohne dass 'drop' je ausgelöst wird.
+      event.dataTransfer.effectAllowed = 'copyMove';
+      // Manche Browser starten den Vorgang nur, wenn Daten gesetzt sind.
+      event.dataTransfer.setData('text/plain', assistantId);
+    }
+  }
+
+  endDrag(): void {
+    this.dragged.set(null);
+    this.dropTarget.set(null);
+  }
+
+  /**
+   * `dragenter` und `dragover` müssen beide preventDefault() aufrufen: ohne
+   * das erste erklärt sich das Element in Firefox nicht als Ziel, ohne das
+   * zweite verwirft der Browser den Abwurf wieder. Fehlt eines davon, wandert
+   * der Name sichtbar mit, `drop` feuert aber nie.
+   */
+  enterDrop(weekday: Weekday, hour: number, event: DragEvent): void {
+    if (!this.dragged()) return;
+    event.preventDefault();
+    this.dropTarget.set(this.key(weekday, hour));
+  }
+
+  allowDrop(weekday: Weekday, hour: number, event: DragEvent): void {
+    if (!this.dragged()) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      // Aus der Seitenleiste wird immer hinzugefügt, aus einer Stunde heraus
+      // verschoben — sofern nicht die Kopiertaste gedrückt ist.
+      const moving = !!this.dragged()?.fromKey && !this.isCopy(event);
+      event.dataTransfer.dropEffect = moving ? 'move' : 'copy';
+    }
+    this.dropTarget.set(this.key(weekday, hour));
+  }
+
+  /**
+   * Beim Wechsel auf ein Kindelement meldet der Browser ein `dragleave` der
+   * Zelle. Deshalb wird nur zurückgesetzt, wenn der Zeiger die Zelle wirklich
+   * verlässt — sonst flackert die Hervorhebung.
+   */
+  leaveDrop(weekday: Weekday, hour: number, event: DragEvent): void {
+    const target = event.currentTarget as HTMLElement | null;
+    const next = event.relatedTarget as Node | null;
+    if (target && next && target.contains(next)) return;
+    if (this.dropTarget() === this.key(weekday, hour)) this.dropTarget.set(null);
+  }
+
+  /**
+   * Ablegen auf einer Stunde. Drei Fälle, in dieser Reihenfolge:
+   * eine gezogene Schicht behält ihre Länge, ein Abwurf im markierten Block
+   * besetzt diesen ganz, sonst gilt die einzelne Stunde.
+   */
+  drop(weekday: Weekday, hour: number, event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const drag = this.dragged();
+    this.endDrag();
+    if (!drag) return;
+
+    const targets = this.dropTargets(drag, weekday, hour);
+    if (!targets.length) return;
+
+    if (drag.fromKey && !this.isCopy(event)) {
+      const from = drag.sourceHours.length > 1 ? this.sourceKeys(drag) : drag.fromKey;
+      if (targets.length === 1 && targets[0] === drag.fromKey) return;
+      this.store.moveAssignment(from, targets, drag.assistantId);
+      return;
+    }
+    this.store.assignToSlots(targets, drag.assistantId);
+  }
+
+  /** Ursprüngliche Slots einer gezogenen Schicht. */
+  private sourceKeys(drag: { fromKey: string | null; sourceHours: number[] }): string[] {
+    const slot = this.store.slots().find((s) => s.key === drag.fromKey);
+    if (!slot) return drag.fromKey ? [drag.fromKey] : [];
+    return drag.sourceHours.map((h) => slotKey(slot.week, slot.weekday, h));
+  }
+
+  /**
+   * Zielslots eines Abwurfs. Eine mehrstündige Schicht wird so weit nach vorn
+   * geschoben, dass sie in den Tag passt, statt abgeschnitten zu werden —
+   * eine Vierstundenschicht soll eine Vierstundenschicht bleiben.
+   */
+  private dropTargets(
+    drag: { assistantId: string; sourceHours: number[]; grabOffset: number },
+    weekday: Weekday,
+    hour: number,
+  ): string[] {
+    const available = this.store
+      .slotsOfWeek(this.selectedWeek())
+      .filter((s) => s.weekday === weekday)
+      .map((s) => s.hour)
+      .sort((a, b) => a - b);
+    if (!available.length) return [];
+
+    const length = Math.max(1, drag.sourceHours.length);
+    if (length === 1) {
+      const targetKey = this.key(weekday, hour);
+      // Einzelne Stunde: der markierte Block bleibt das bevorzugte Ziel.
+      return this.selectedKeySet().has(targetKey) ? this.selectedKeys() : [targetKey];
+    }
+
+    return shiftBlockHours(available, length, drag.grabOffset, hour).map((h) =>
+      this.key(weekday, h),
+    );
+  }
+
+  /** Mit gedrückter Strg- oder Wahltaste wird kopiert statt verschoben. */
+  private isCopy(event: DragEvent): boolean {
+    return event.ctrlKey || event.metaKey || event.altKey;
+  }
+
+  /**
+   * Hervorhebung beim Schweben. Sie zeigt genau die Slots, die der Abwurf
+   * treffen würde — inklusive einer verschobenen Schicht am Tagesrand.
+   */
+  isDropTarget(weekday: Weekday, hour: number): boolean {
+    const target = this.dropTarget();
+    const drag = this.dragged();
+    if (!target || !drag) return false;
+    const slot = this.store.slots().find((s) => s.key === target);
+    if (!slot) return false;
+    return this.dropTargets(drag, slot.weekday, slot.hour).includes(this.key(weekday, hour));
   }
 
   clearSelection(): void {

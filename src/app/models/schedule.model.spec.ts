@@ -5,6 +5,7 @@ import {
   fromIso,
   isValidIso,
   isoWeekNumber,
+  shiftBlockHours,
   slotKey,
   startOfWeek,
   toIso,
@@ -113,6 +114,47 @@ describe('Slotschlüssel', () => {
   });
 });
 
+
+describe('shiftBlockHours', () => {
+  // Tag von 9 bis 18 Uhr, also Slots 9 bis 17.
+  const day = [9, 10, 11, 12, 13, 14, 15, 16, 17];
+
+  it('legt eine Schicht am Griffpunkt ab', () => {
+    // Vierstundenschicht, in der Mitte angefasst (dritte Stunde), auf 14 gezogen.
+    expect(shiftBlockHours(day, 4, 2, 14)).toEqual([12, 13, 14, 15]);
+  });
+
+  it('legt eine am Anfang angefasste Schicht bündig ab', () => {
+    expect(shiftBlockHours(day, 4, 0, 14)).toEqual([14, 15, 16, 17]);
+  });
+
+  it('schiebt eine Schicht ins Tagesende hinein, statt sie zu kürzen', () => {
+    // Ohne Verschiebung bliebe nur noch eine Stunde übrig.
+    expect(shiftBlockHours(day, 4, 0, 17)).toEqual([14, 15, 16, 17]);
+  });
+
+  it('schiebt eine Schicht auch am Tagesbeginn hinein', () => {
+    expect(shiftBlockHours(day, 3, 2, 9)).toEqual([9, 10, 11]);
+  });
+
+  it('kürzt nur, wenn der Tag selbst kürzer ist als die Schicht', () => {
+    const shortDay = [9, 10];
+    expect(shiftBlockHours(shortDay, 4, 0, 9)).toEqual([9, 10]);
+  });
+
+  it('überspringt Stunden, die es am Zieltag nicht gibt', () => {
+    // Verkürzter Tag mit Lücke: 9, 10, dann erst wieder 15, 16.
+    expect(shiftBlockHours([9, 10, 15, 16], 3, 0, 9)).toEqual([9, 10]);
+  });
+
+  it('behandelt eine einstündige Schicht wie einen einfachen Abwurf', () => {
+    expect(shiftBlockHours(day, 1, 0, 13)).toEqual([13]);
+  });
+
+  it('verkraftet einen leeren Tag', () => {
+    expect(shiftBlockHours([], 3, 0, 9)).toEqual([]);
+  });
+});
 
 describe('toIso und fromIso', () => {
   it('sind zueinander invers', () => {

@@ -261,6 +261,109 @@ describe('Blockzuweisung', () => {
   });
 });
 
+describe('Zuweisen und Verschieben (Drag and Drop)', () => {
+  it('fügt eine Hilfskraft hinzu, ohne andere zu verdrängen', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a2'] } }));
+    store.assignToSlots(['semester|1-9'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a2', 'a1']);
+  });
+
+  it('fügt niemanden doppelt ein', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.assignToSlots(['semester|1-9'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
+  });
+
+  it('verschiebt eine Hilfskraft von einer Stunde in eine andere', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.moveAssignment('semester|1-9', ['semester|2-9'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual([]);
+    expect(store.assignedTo('semester|2-9')).toEqual(['a1']);
+  });
+
+  it('lässt beim Verschieben andere Hilfskräfte in der Quelle stehen', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1', 'a2'] } }));
+    store.moveAssignment('semester|1-9', ['semester|2-9'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a2']);
+  });
+
+  it('verschiebt auf einen ganzen Block', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.moveAssignment('semester|1-9', ['semester|2-9', 'semester|2-10'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual([]);
+    expect(store.assignedTo('semester|2-9')).toEqual(['a1']);
+    expect(store.assignedTo('semester|2-10')).toEqual(['a1']);
+  });
+
+  it('verliert niemanden, wenn Quelle im Ziel enthalten ist', () => {
+    // Beim Ablegen auf einem Block, der die Quellstunde einschließt, darf die
+    // Person dort nicht entfernt werden.
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.moveAssignment('semester|1-9', ['semester|1-9', 'semester|1-10'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
+    expect(store.assignedTo('semester|1-10')).toEqual(['a1']);
+  });
+
+  it('verschiebt eine ganze Schicht in einem Schritt', () => {
+    const store = makeStore(
+      semester({
+        assignments: {
+          'semester|1-9': ['a1'],
+          'semester|1-10': ['a1'],
+          'semester|1-11': ['a1'],
+        },
+      }),
+    );
+    store.moveAssignment(
+      ['semester|1-9', 'semester|1-10', 'semester|1-11'],
+      ['semester|2-9', 'semester|2-10', 'semester|2-11'],
+      'a1',
+    );
+    expect(store.assignedTo('semester|1-9')).toEqual([]);
+    expect(store.assignedTo('semester|1-11')).toEqual([]);
+    expect(store.assignedTo('semester|2-10')).toEqual(['a1']);
+  });
+
+  it('verliert bei überlappender Verschiebung keine Stunde', () => {
+    // Schicht 9–11 wird um eine Stunde nach hinten gezogen: 10 und 11 sind
+    // in Quelle und Ziel enthalten und dürfen nicht herausfallen.
+    const store = makeStore(
+      semester({
+        assignments: {
+          'semester|1-9': ['a1'],
+          'semester|1-10': ['a1'],
+          'semester|1-11': ['a1'],
+        },
+      }),
+    );
+    store.moveAssignment(
+      ['semester|1-9', 'semester|1-10', 'semester|1-11'],
+      ['semester|1-10', 'semester|1-11'],
+      'a1',
+    );
+    expect(store.assignedTo('semester|1-9')).toEqual([]);
+    expect(store.assignedTo('semester|1-10')).toEqual(['a1']);
+    expect(store.assignedTo('semester|1-11')).toEqual(['a1']);
+  });
+
+  it('lässt beim Verschieben einer Schicht andere Personen unberührt', () => {
+    const store = makeStore(
+      semester({
+        assignments: { 'semester|1-9': ['a1', 'a2'], 'semester|1-10': ['a1'] },
+      }),
+    );
+    store.moveAssignment(['semester|1-9', 'semester|1-10'], ['semester|3-9', 'semester|3-10'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a2']);
+    expect(store.assignedTo('semester|3-9')).toEqual(['a1']);
+  });
+
+  it('verkraftet ein leeres Ziel', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.moveAssignment('semester|1-9', [], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
+  });
+});
+
 describe('Moduswechsel', () => {
   it('behält die Daten beider Modi, sodass der Wechsel umkehrbar ist', () => {
     const store = makeStore(

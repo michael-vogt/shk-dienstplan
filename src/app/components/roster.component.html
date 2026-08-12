@@ -86,7 +86,12 @@
                 <th scope="row" class="time">{{ time(hour) }}</th>
                 @for (day of store.openWeekdays(); track day) {
                   @if (isOpen(selectedWeek(), day, hour)) {
-                    <td>
+                    <td
+                      (dragenter)="enterDrop(day, hour, $event)"
+                      (dragover)="allowDrop(day, hour, $event)"
+                      (dragleave)="leaveDrop(day, hour, $event)"
+                      (drop)="drop(day, hour, $event)"
+                    >
                       <button
                         type="button"
                         class="cell"
@@ -95,13 +100,21 @@
                         [class.block-end]="isBlockEnd(day, hour)"
                         [class.empty-slot]="!assignedFor(selectedWeek(), day, hour).length"
                         [class.has-error]="levelFor(day, hour) === 'error'"
+                        [class.drop-target]="isDropTarget(day, hour)"
                         (click)="select(day, hour, $event)"
                         (keydown.shift.arrowup)="extend(-1, $event)"
                         (keydown.shift.arrowdown)="extend(1, $event)"
                       >
                         @for (assistant of assignedFor(selectedWeek(), day, hour);
                           track assistant.id) {
-                          <span class="pill" [style.background]="assistant.color">
+                          <span
+                            class="pill"
+                            draggable="true"
+                            [style.background]="assistant.color"
+                            [attr.title]="assistant.name + ' — ziehen zum Verschieben'"
+                            (dragstart)="startDrag(assistant.id, key(day, hour), $event)"
+                            (dragend)="endDrag()"
+                          >
                             {{ assistant.name }}
                           </span>
                         } @empty {
@@ -136,10 +149,13 @@
                   <button
                     type="button"
                     class="candidate"
+                    draggable="true"
                     [class.on]="candidate.coverage === 'all'"
                     [class.partial]="candidate.coverage === 'some'"
                     [style.--chip]="candidate.assistant.color"
                     (click)="toggle(candidate.assistant.id)"
+                    (dragstart)="startDrag(candidate.assistant.id, null, $event)"
+                    (dragend)="endDrag()"
                   >
                     <span class="name">{{ candidate.assistant.name }}</span>
                     @if (coverageLabel(candidate); as coverage) {
@@ -153,8 +169,9 @@
               }
             </ul>
             <p class="select-hint">
-              Umschalt-Klick erweitert die Markierung auf einen Block, solange sie in derselben
-              Spalte bleibt.
+              Umschalt-Klick erweitert die Markierung auf einen Block. Namen lassen sich auch ins
+              Raster ziehen; beim Ablegen im markierten Block wird er ganz besetzt. Ziehen mit
+              Strg kopiert statt zu verschieben.
             </p>
           }
         } @else {
@@ -173,7 +190,13 @@
         </h3>
         <ul class="hours">
           @for (assistant of store.assistants(); track assistant.id) {
-            <li>
+            <li
+              class="draggable"
+              draggable="true"
+              [attr.title]="assistant.name + ' — ins Raster ziehen'"
+              (dragstart)="startDrag(assistant.id, null, $event)"
+              (dragend)="endDrag()"
+            >
               <span class="dot" [style.background]="assistant.color"></span>
               <span class="name">{{ assistant.name }}</span>
               <span class="num">{{ hoursThisWeek()[assistant.id] }} h</span>

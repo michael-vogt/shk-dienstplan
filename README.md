@@ -63,6 +63,29 @@ Aufbau der Wochenpläne in beiden Modi, angebrochene Wochen am Rand des Zeitraum
 Übertragen zwischen Wochen, der Moduswechsel und die Migration älterer Stände. Die Komponenten sind bewusst nicht getestet — sie enthalten
 nur Darstellung, die Logik liegt vollständig im Store.
 
+## Bedienung des Dienstplans
+
+- **Klick** wählt eine Stunde, **Umschalt-Klick** erweitert die Auswahl zu einem Block. Ein Block
+  bleibt immer innerhalb einer Tagesspalte; ein Umschalt-Klick in einer anderen Spalte beginnt
+  dort eine neue Auswahl. Ohne Maus geht dasselbe mit **Umschalt + Pfeil hoch/runter**.
+- **Klick auf einen Namen** in der Seitenleiste besetzt den ganzen markierten Block. Ist er
+  teilweise besetzt, wird aufgefüllt; ist er vollständig besetzt, wird die Person entfernt.
+- **Ziehen** funktioniert aus der Seitenleiste ins Raster und von Stunde zu Stunde. Ziehen einer
+  bereits eingeteilten Person **verschiebt** sie; mit gedrückter **Strg-Taste** wird kopiert.
+- **Eine ganze Schicht verschieben**: Block markieren, dann einen Namen daraus an eine andere
+  Stelle ziehen — die Schicht wird dort in gleicher Länge abgelegt. Der Griffpunkt bleibt
+  erhalten: fasst man eine Schicht von 9 bis 13 Uhr bei 11 an und lässt bei 14 los, beginnt sie
+  bei 12. Passt sie nicht mehr ans Tagesende, rutscht sie so weit nach vorn, dass sie
+  hineinpasst, statt gekürzt zu werden. Andere Personen im Block bleiben, wo sie sind.
+- Wird ein Name **von außerhalb** in den markierten Block gezogen, wird dieser ganz besetzt.
+
+Mehrere Hilfskräfte pro Stunde sind ausdrücklich vorgesehen, auch mit versetzten Zeiten: eine
+Person von 8 bis 11 Uhr und eine zweite von 9 bis 13 Uhr ergeben in den Überschneidungsstunden
+schlicht zwei Einträge.
+
+Drag & Drop nutzt die native Browser-Schnittstelle und steht auf Geräten mit Touch-Bedienung
+nicht zur Verfügung; dort führen Klick und Umschalt-Klick zum selben Ergebnis.
+
 ## Warnungen
 
 Der Plan wird nie blockiert, nur kommentiert. Angezeigt werden die Hinweise der gerade

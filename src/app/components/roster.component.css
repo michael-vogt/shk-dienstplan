@@ -328,6 +328,31 @@ td.closed {
 .cell.selected.block-start.block-end.has-error {
   box-shadow: inset 0 0 0 2px var(--error);
 }
+/* Ablegeziel beim Ziehen. Kräftiger als die Auswahl, weil es nur kurz
+   sichtbar ist und den Zielort eindeutig zeigen muss. */
+.cell.drop-target {
+  background: #dce8f5;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.pill[draggable='true'] {
+  cursor: grab;
+}
+.pill[draggable='true']:active {
+  cursor: grabbing;
+}
+.hours li.draggable {
+  cursor: grab;
+  border-radius: 3px;
+  padding: 0.1rem 0.2rem;
+  margin: 0 -0.2rem;
+}
+.hours li.draggable:hover {
+  background: var(--surface-2);
+}
+.candidate[draggable='true'] {
+  cursor: grab;
+}
+
 .block-size {
   font-size: 0.72rem;
   text-transform: none;

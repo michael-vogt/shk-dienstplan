@@ -129,6 +129,36 @@ export interface ScheduleWarning {
   assistantId?: string;
 }
 
+/**
+ * Zielstunden einer verschobenen Schicht innerhalb eines Tages.
+ *
+ * `available` sind die geöffneten Stunden des Zieltags (aufsteigend), `length`
+ * die Länge der Schicht und `grabOffset` die angefasste Stelle darin. Passt
+ * die Schicht nicht mehr ans Tagesende, wird sie nach vorn geschoben statt
+ * abgeschnitten — eine Vierstundenschicht soll eine Vierstundenschicht
+ * bleiben. Nur wenn der Tag insgesamt kürzer ist, bleibt eine Kürzung übrig.
+ */
+export function shiftBlockHours(
+  available: number[],
+  length: number,
+  grabOffset: number,
+  dropHour: number,
+): number[] {
+  if (!available.length || length < 1) return [];
+  const sorted = [...available].sort((a, b) => a - b);
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+
+  let start = dropHour - Math.max(0, grabOffset);
+  start = Math.max(first, Math.min(start, last - length + 1));
+
+  const result: number[] = [];
+  for (let hour = start; hour < start + length; hour++) {
+    if (sorted.includes(hour)) result.push(hour);
+  }
+  return result;
+}
+
 // --- Datumsrechnung ---------------------------------------------------------
 // Bewusst ohne Bibliothek und ohne UTC: alle Termine sind lokale Kalendertage.
 // Eine Zeitzonenumrechnung würde hier nur Verschiebungen um einen Tag einführen.

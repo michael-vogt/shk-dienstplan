@@ -718,6 +718,45 @@ export class ScheduleStore {
     });
   }
 
+  /** Setzt eine Hilfskraft auf die angegebenen Slots, ohne andere zu verdrängen. */
+  assignToSlots(keys: SlotKeyLike[], assistantId: string): void {
+    if (!keys.length) return;
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+      for (const key of keys) {
+        const current = assignments[key] ?? [];
+        if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
+      }
+      return { ...s, assignments };
+    });
+  }
+
+  /**
+   * Verschiebt eine Hilfskraft von einem oder mehreren Slots auf andere.
+   * Quelle und Ziel werden in einem Schritt geändert, damit beim Ziehen kein
+   * Zwischenzustand entsteht, in dem die Person nirgends eingeteilt ist —
+   * insbesondere dann nicht, wenn sich Quelle und Ziel überschneiden.
+   */
+  moveAssignment(from: SlotKeyLike | SlotKeyLike[], to: SlotKeyLike[], assistantId: string): void {
+    if (!to.length) return;
+    const sources = Array.isArray(from) ? from : [from];
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+
+      for (const key of sources) {
+        const rest = (assignments[key] ?? []).filter((id) => id !== assistantId);
+        if (rest.length) assignments[key] = rest;
+        else delete assignments[key];
+      }
+
+      for (const key of to) {
+        const current = assignments[key] ?? [];
+        if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
+      }
+      return { ...s, assignments };
+    });
+  }
+
   /** Überträgt die Einteilung einer Woche auf eine andere, Stelle für Stelle. */
   copyWeek(source: WeekKey, target: WeekKey): number {
     if (source === target) return 0;
