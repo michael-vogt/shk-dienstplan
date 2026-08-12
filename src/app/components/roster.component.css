@@ -261,6 +261,22 @@ td.closed {
   color: #4a3a63;
 }
 
+.error-count {
+  font-size: 0.72rem;
+  color: var(--error);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 0.4rem;
+}
+.other-count {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.print-weeks {
+  display: none;
+}
+
 /* --- Druck ---------------------------------------------------------------
    Aushangfassung: nur das Raster. Seitenpanel und Hinweise sind Werkzeuge
    für die Planung, nicht für die Leserschaft am Tresen. */
@@ -271,8 +287,30 @@ td.closed {
   .side,
   .warnings,
   .weeks,
-  .week-tools {
+  .week-tools,
+  .layout {
     display: none;
+  }
+
+  /* Statt der Bildschirmwoche werden alle Wochen gedruckt, je eine Seite. */
+  .print-weeks {
+    display: block;
+  }
+  .print-week {
+    break-after: page;
+    page-break-after: always;
+  }
+  .print-week:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  .print-week-head {
+    font-size: 11pt;
+    margin: 0 0 0.4rem;
+  }
+  .print-week .cell {
+    display: block;
+    padding: 0.25rem;
   }
   .grid {
     min-width: 0;

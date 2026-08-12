@@ -59,7 +59,7 @@ export class ExportService {
       rows.push([assistant.name, String(hours[assistant.id] ?? 0)]);
     }
 
-    this.download(this.toCsvBlob(rows), this.fileName('csv', 'dienstplan'));
+    this.download(this.toCsvBlob(rows), this.fileName('csv', 'shk-dienstplan'));
   }
 
   /** Verfügbarkeitsmatrix (wochentagsbasiert) samt Abwesenheiten. */
@@ -126,7 +126,7 @@ export class ExportService {
     return value;
   }
 
-  private fileName(extension: string, prefix = 'dienstplan-daten'): string {
+  private fileName(extension: string, prefix = 'shk-dienstplan-daten'): string {
     const date = new Date().toISOString().slice(0, 10);
     return prefix + '-' + date + '.' + extension;
   }

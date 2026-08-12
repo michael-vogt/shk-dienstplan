@@ -131,15 +131,75 @@
       </aside>
     </div>
 
+    <!--
+      Nur für den Druck: alle Wochen des Zeitraums untereinander, je eine Seite.
+      Am Bildschirm bleibt es bei der ausgewählten Woche, sonst wäre die Seite
+      bei einem Semesterplan unbedienbar lang.
+    -->
+    <div class="print-weeks">
+      @for (week of store.weeks(); track week.monday) {
+        <section class="print-week">
+          <h3 class="print-week-head">
+            {{ week.label }} · {{ formatDateLong(week.monday) }}
+          </h3>
+          <table class="grid">
+            <thead>
+            <tr>
+              <th class="corner">Uhrzeit</th>
+              @for (date of week.dates; track date) {
+                <th>
+                  {{ short(date) }}
+                  <span class="date">{{ formatDate(date) }}</span>
+                </th>
+              }
+            </tr>
+            </thead>
+            <tbody>
+              @for (hour of store.hourRowsFor(week.dates); track hour) {
+                <tr>
+                  <th scope="row" class="time">{{ time(hour) }}</th>
+                  @for (date of week.dates; track date) {
+                    @if (isOpen(date, hour)) {
+                      <td>
+                        <span class="cell">
+                          @for (assistant of assignedFor(date, hour); track assistant.id) {
+                            <span class="pill" [style.background]="assistant.color">
+                              {{ assistant.name }}
+                            </span>
+                          } @empty {
+                            <span class="placeholder">frei</span>
+                          }
+                        </span>
+                      </td>
+                    } @else {
+                      <td class="closed"></td>
+                    }
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </section>
+      }
+    </div>
+
     <div class="warnings">
       <div class="warnings-head">
-        <h3>Hinweise im gesamten Zeitraum ({{ store.warnings().length }})</h3>
+        <h3>
+          Hinweise dieser Woche ({{ weekWarnings().length }})
+          @if (errorCount()) {
+            <span class="error-count">davon {{ errorCount() }} Konflikt(e)</span>
+          }
+        </h3>
+        @if (otherWarningCount()) {
+          <span class="other-count">{{ otherWarningCount() }} weitere in anderen Wochen</span>
+        }
       </div>
-      @if (!store.warnings().length) {
-        <p class="ok">Jede Stunde ist besetzt, keine Konflikte.</p>
+      @if (!weekWarnings().length) {
+        <p class="ok">In dieser Woche ist jede Stunde besetzt, keine Konflikte.</p>
       } @else {
         <ul>
-          @for (warning of store.warnings(); track $index) {
+          @for (warning of weekWarnings(); track $index) {
             <li [class]="'w-' + warning.level">{{ warning.message }}</li>
           }
         </ul>

@@ -4,6 +4,7 @@ import {
   Assistant,
   Availability,
   IsoDate,
+  ScheduleWarning,
   Slot,
   WEEKDAY_SHORT,
   formatDate,
@@ -89,6 +90,29 @@ export class RosterComponent {
         return (rank[String(a.answer)] ?? 2) - (rank[String(b.answer)] ?? 2);
       });
   });
+
+  /**
+   * Hinweise der angezeigten Woche. Über einen mehrwöchigen Zeitraum wären es
+   * sonst hunderte Zeilen, in denen die eine wichtige Meldung untergeht.
+   */
+  readonly weekWarnings = computed<ScheduleWarning[]>(() => {
+    const monday = this.selectedMonday();
+    if (!monday) return [];
+    const dates = new Set(this.weekDates());
+    return this.store.warnings().filter((w) => {
+      if (!w.slotKey) return true;
+      return dates.has(w.slotKey.slice(0, 10));
+    });
+  });
+
+  /** Anzahl der Hinweise außerhalb der angezeigten Woche. */
+  readonly otherWarningCount = computed(
+    () => this.store.warnings().length - this.weekWarnings().length,
+  );
+
+  readonly errorCount = computed(
+    () => this.weekWarnings().filter((w) => w.level === 'error').length,
+  );
 
   /** Andere Wochen als Quelle zum Kopieren. */
   readonly otherWeeks = computed<WeekGroup[]>(() =>
