@@ -64,6 +64,13 @@
       </div>
     }
 
+    @if (canUndoMove()) {
+      <div class="undo-bar">
+        <span>Verschoben.</span>
+        <button type="button" class="ghost" (click)="undoLastMove()">Rückgängig</button>
+      </div>
+    }
+
     <div class="layout">
       <div class="grid-scroll">
         <table class="grid">

@@ -263,8 +263,38 @@ export class RosterComponent {
   }
 
   toggle(assistantId: string): void {
+    this.lastMove.set(null);
     this.store.toggleAssignmentForSlots(this.selectedKeys(), assistantId);
   }
+
+  /**
+   * Letzte Blockverschiebung, um sie rückgängig machen zu können. Bewusst
+   * nur ein einzelner gemerkter Schritt, kein allgemeiner Verlauf — jede
+   * andere Änderung am Dienstplan verwirft ihn.
+   */
+  readonly lastMove = signal<{
+    assistantId: string;
+    from: string[];
+    to: string[];
+  } | null>(null);
+
+  undoLastMove(): void {
+    const move = this.lastMove();
+    if (!move) return;
+    this.store.moveAssignment(move.to, move.from, move.assistantId);
+    this.lastMove.set(null);
+  }
+
+  /**
+   * Zeigt den Rückgängig-Hinweis nur, solange die betroffene Woche noch
+   * angezeigt wird — sonst würde die Person unsichtbar irgendwo verschoben.
+   */
+  readonly canUndoMove = computed(() => {
+    const move = this.lastMove();
+    if (!move) return false;
+    const week = this.selectedWeek();
+    return [...move.from, ...move.to].every((key) => key.startsWith(week + '|'));
+  });
 
   // --- Ziehen und Ablegen ---------------------------------------------------
 
@@ -378,12 +408,20 @@ export class RosterComponent {
     if (!targets.length) return;
 
     if (drag.fromKey && !this.isCopy(event)) {
-      const from = drag.sourceHours.length > 1 ? this.sourceKeys(drag) : drag.fromKey;
-      if (targets.length === 1 && targets[0] === drag.fromKey) return;
+      const from = drag.sourceHours.length > 1 ? this.sourceKeys(drag) : [drag.fromKey];
+      if (this.sameSlots(from, targets)) return;
       this.store.moveAssignment(from, targets, drag.assistantId);
+      this.lastMove.set({ assistantId: drag.assistantId, from, to: targets });
       return;
     }
+    this.lastMove.set(null);
     this.store.assignToSlots(targets, drag.assistantId);
+  }
+
+  private sameSlots(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    const setB = new Set(b);
+    return a.every((key) => setB.has(key));
   }
 
   /** Ursprüngliche Slots einer gezogenen Schicht. */
@@ -453,15 +491,22 @@ export class RosterComponent {
     const source = (event.target as HTMLSelectElement).value;
     (event.target as HTMLSelectElement).value = '';
     if (!source) return;
+    this.lastMove.set(null);
     const copied = this.store.copyWeek(source, this.selectedWeek());
     if (!copied) alert('In dieser Woche ist nichts eingeteilt.');
   }
 
   clearWeek(): void {
-    if (confirm('Einteilung dieser Woche löschen?')) this.store.clearWeek(this.selectedWeek());
+    if (confirm('Einteilung dieser Woche löschen?')) {
+      this.lastMove.set(null);
+      this.store.clearWeek(this.selectedWeek());
+    }
   }
 
   clearAll(): void {
-    if (confirm('Alle Einteilungen dieses Dienstplans löschen?')) this.store.clearAssignments();
+    if (confirm('Alle Einteilungen dieses Dienstplans löschen?')) {
+      this.lastMove.set(null);
+      this.store.clearAssignments();
+    }
   }
 }

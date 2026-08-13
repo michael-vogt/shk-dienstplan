@@ -357,6 +357,40 @@ describe('Zuweisen und Verschieben (Drag and Drop)', () => {
     expect(store.assignedTo('semester|3-9')).toEqual(['a1']);
   });
 
+  it('macht eine Verschiebung durch den umgekehrten Aufruf rückgängig', () => {
+    // So funktioniert das Rückgängig in der Oberfläche: moveAssignment(to, from).
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.moveAssignment(['semester|1-9'], ['semester|3-9'], 'a1');
+    store.moveAssignment(['semester|3-9'], ['semester|1-9'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
+    expect(store.assignedTo('semester|3-9')).toEqual([]);
+  });
+
+  it('macht auch eine überlappende Blockverschiebung sauber rückgängig', () => {
+    const store = makeStore(
+      semester({
+        assignments: { 'semester|1-9': ['a1'], 'semester|1-10': ['a1'], 'semester|1-11': ['a1'] },
+      }),
+    );
+    const from = ['semester|1-9', 'semester|1-10', 'semester|1-11'];
+    const to = ['semester|1-10', 'semester|1-11', 'semester|1-12'];
+    store.moveAssignment(from, to, 'a1');
+    store.moveAssignment(to, from, 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
+    expect(store.assignedTo('semester|1-10')).toEqual(['a1']);
+    expect(store.assignedTo('semester|1-11')).toEqual(['a1']);
+    expect(store.assignedTo('semester|1-12')).toEqual([]);
+  });
+
+  it('rührt beim Rückgängigmachen andere Personen nicht an', () => {
+    const store = makeStore(
+      semester({ assignments: { 'semester|1-9': ['a1', 'a2'] } }),
+    );
+    store.moveAssignment(['semester|1-9'], ['semester|2-9'], 'a1');
+    store.moveAssignment(['semester|2-9'], ['semester|1-9'], 'a1');
+    expect(store.assignedTo('semester|1-9')).toEqual(['a2', 'a1']);
+  });
+
   it('verkraftet ein leeres Ziel', () => {
     const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
     store.moveAssignment('semester|1-9', [], 'a1');

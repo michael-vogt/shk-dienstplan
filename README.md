@@ -78,6 +78,9 @@ nur Darstellung, die Logik liegt vollständig im Store.
   bei 12. Passt sie nicht mehr ans Tagesende, rutscht sie so weit nach vorn, dass sie
   hineinpasst, statt gekürzt zu werden. Andere Personen im Block bleiben, wo sie sind.
 - Wird ein Name **von außerhalb** in den markierten Block gezogen, wird dieser ganz besetzt.
+- Nach jedem Verschieben (nicht nach dem Zuweisen) erscheint eine Zeile mit **Rückgängig**. Sie
+  betrifft nur diesen einen Schritt — es gibt keinen mehrstufigen Verlauf — und verschwindet,
+  sobald eine andere Änderung vorgenommen oder die Woche gewechselt wird.
 
 Mehrere Hilfskräfte pro Stunde sind ausdrücklich vorgesehen, auch mit versetzten Zeiten: eine
 Person von 8 bis 11 Uhr und eine zweite von 9 bis 13 Uhr ergeben in den Überschneidungsstunden
