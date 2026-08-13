@@ -7,6 +7,7 @@ import {
   PlanMode,
   SEMESTER_WEEK,
   ScheduleState,
+  Vacation,
   ScheduleWarning,
   Slot,
   WEEKDAYS,
@@ -19,6 +20,7 @@ import {
   formatHour,
   isValidIso,
   isoWeekNumber,
+  isWithin,
   slotKey,
   startOfWeek,
   toIso,
@@ -68,7 +70,7 @@ function defaultPeriod(): { start: IsoDate; end: IsoDate } {
 
 function createDefaultState(): ScheduleState {
   return {
-    version: 4,
+    version: 5,
     title: 'Dienstplan Bibliothek',
     mode: 'semester',
     period: defaultPeriod(),
@@ -79,6 +81,7 @@ function createDefaultState(): ScheduleState {
       end: 18,
     })),
     assistants: [],
+    vacations: [],
     availability: {},
     assignments: {},
   };
@@ -235,13 +238,33 @@ export function normalizeState(input: unknown): ScheduleState {
     if (kept.length) assignments[key] = kept;
   }
 
+  const vacationsRaw = Array.isArray(raw['vacations']) ? raw['vacations'] : [];
+  const vacations: Vacation[] = [];
+  for (const item of vacationsRaw) {
+    if (!item || typeof item !== 'object') continue;
+    const v = item as Record<string, unknown>;
+    if (typeof v['assistantId'] !== 'string' || !knownIds.has(v['assistantId'])) continue;
+    if (!isValidIso(v['from']) || !isValidIso(v['to'])) continue;
+    const from = v['from'] as IsoDate;
+    const to = v['to'] as IsoDate;
+    vacations.push({
+      id: typeof v['id'] === 'string' ? v['id'] : createId(),
+      assistantId: v['assistantId'],
+      from: from <= to ? from : to,
+      to: from <= to ? to : from,
+      note: typeof v['note'] === 'string' ? v['note'] : undefined,
+    });
+  }
+  vacations.sort((a, b) => a.from.localeCompare(b.from));
+
   return {
-    version: 4,
+    version: 5,
     title: typeof raw['title'] === 'string' && raw['title'].trim() ? raw['title'] : base.title,
     mode,
     period,
     openingHours,
     assistants,
+    vacations,
     availability,
     assignments,
   };
@@ -257,6 +280,32 @@ export class ScheduleStore {
   readonly isBreakMode = computed(() => this._state().mode === 'break');
   readonly period = computed(() => this._state().period);
   readonly assistants = computed(() => this._state().assistants);
+  readonly vacations = computed(() => this._state().vacations);
+
+  vacationsOf(assistantId: string): Vacation[] {
+    return this._state()
+      .vacations.filter((v) => v.assistantId === assistantId)
+      .sort((a, b) => a.from.localeCompare(b.from));
+  }
+
+  /**
+   * Ist die Hilfskraft an diesem Tag im Urlaub? Nur im Ferienplan aussagekräftig
+   * — der Semesterplan hat keine Kalendertage, gegen die sich prüfen ließe.
+   */
+  isOnVacation(assistantId: string, date: IsoDate): boolean {
+    return this._state().vacations.some(
+      (v) => v.assistantId === assistantId && isWithin(date, v.from, v.to),
+    );
+  }
+
+  /**
+   * Ist der Slot für diese Hilfskraft gesperrt? Grundlage für die
+   * Zuweisungssperre — im Gegensatz zu den übrigen Warnungen wird eine
+   * Zuweisung hier tatsächlich verhindert, nicht nur kommentiert.
+   */
+  isBlockedFor(assistantId: string, slot: Slot): boolean {
+    return !!slot.date && this.isOnVacation(assistantId, slot.date);
+  }
   readonly openingHours = computed(() => this._state().openingHours);
 
   /** Geöffnete Wochentage laut Standard — in beiden Modi dieselbe Grundlage. */
@@ -484,6 +533,19 @@ export class ScheduleStore {
 
       let onlyIfNeeded = true;
       for (const id of assigned) {
+        if (this.isBlockedFor(id, slot)) {
+          // Kann nur durch nachträglich eingetragenen Urlaub entstehen, da
+          // die Zuweisungswege eine Sperre selbst schon verhindern.
+          result.push({
+            level: 'error',
+            slotKey: slot.key,
+            week: slot.week,
+            assistantId: id,
+            message: `${label}: ${nameOf(id)} hat hier Urlaub eingetragen.`,
+          });
+          onlyIfNeeded = false;
+          continue;
+        }
         const answer = this.getAvailability(id, slot.key);
         if (answer === 'no') {
           result.push({
@@ -651,10 +713,46 @@ export class ScheduleStore {
       return {
         ...s,
         assistants: s.assistants.filter((a) => a.id !== id),
+        vacations: s.vacations.filter((v) => v.assistantId !== id),
         availability,
         assignments,
       };
     });
+  }
+
+  // --- Urlaub -----------------------------------------------------------
+
+  /**
+   * Trägt Urlaub ein und entfernt dafür rückwirkend jede Zuweisung in diesem
+   * Zeitraum — sonst bliebe eine bereits geplante Schicht bestehen und würde
+   * nur noch als Warnung auffallen, statt gelöst zu sein.
+   */
+  addVacation(assistantId: string, from: IsoDate, to: IsoDate, note = ''): void {
+    if (!isValidIso(from) || !isValidIso(to)) return;
+    const range = { from: from <= to ? from : to, to: from <= to ? to : from };
+    this._state.update((s) => {
+      const vacations = [
+        ...s.vacations,
+        { id: createId(), assistantId, ...range, note: note.trim() || undefined },
+      ];
+      vacations.sort((a, b) => a.from.localeCompare(b.from));
+
+      const assignments = { ...s.assignments };
+      for (const slot of this.slots()) {
+        if (!slot.date || !isWithin(slot.date, range.from, range.to)) continue;
+        const current = assignments[slot.key];
+        if (!current?.includes(assistantId)) continue;
+        const rest = current.filter((id) => id !== assistantId);
+        if (rest.length) assignments[slot.key] = rest;
+        else delete assignments[slot.key];
+      }
+
+      return { ...s, vacations, assignments };
+    });
+  }
+
+  removeVacation(id: string): void {
+    this._state.update((s) => ({ ...s, vacations: s.vacations.filter((v) => v.id !== id) }));
   }
 
   // --- Einteilung -----------------------------------------------------------
@@ -667,7 +765,26 @@ export class ScheduleStore {
     return this.assignedTo(key).includes(assistantId);
   }
 
+  /** Slot zu einem Schlüssel, falls er im aktuellen Plan existiert. */
+  private slotByKey(key: SlotKeyLike): Slot | undefined {
+    return this.slots().find((s) => s.key === key);
+  }
+
+  /**
+   * Filtert Urlaubstage aus einer Liste von Zielslots heraus. Der Semesterplan
+   * hat keine Kalendertage, dort greift die Sperre folglich nie.
+   */
+  private withoutVacation(keys: SlotKeyLike[], assistantId: string): SlotKeyLike[] {
+    return keys.filter((key) => {
+      const slot = this.slotByKey(key);
+      return !slot || !this.isBlockedFor(assistantId, slot);
+    });
+  }
+
   toggleAssignment(key: SlotKeyLike, assistantId: string): void {
+    const slot = this.slotByKey(key);
+    // Entfernen ist immer erlaubt — nur das Hinzufügen wird durch Urlaub gesperrt.
+    if (slot && !this.isAssigned(key, assistantId) && this.isBlockedFor(assistantId, slot)) return;
     this._state.update((s) => {
       const current = s.assignments[key] ?? [];
       const next = current.includes(assistantId)
@@ -697,14 +814,18 @@ export class ScheduleStore {
   /**
    * Setzt oder entfernt eine Hilfskraft über einen ganzen Block. Teilweise
    * belegte Blöcke werden aufgefüllt, nicht geleert — das ist beim
-   * Nachbessern einer Schicht die erwartete Richtung.
+   * Nachbessern einer Schicht die erwartete Richtung. Urlaubstage innerhalb
+   * des Blocks werden beim Auffüllen ausgelassen, beim Leeren wie gewohnt
+   * mit entfernt.
    */
   toggleAssignmentForSlots(keys: SlotKeyLike[], assistantId: string): void {
     if (!keys.length) return;
     const assign = this.assignmentCoverage(keys, assistantId) !== 'all';
+    const targets = assign ? this.withoutVacation(keys, assistantId) : keys;
+    if (!targets.length) return;
     this._state.update((s) => {
       const assignments = { ...s.assignments };
-      for (const key of keys) {
+      for (const key of targets) {
         const current = assignments[key] ?? [];
         if (assign) {
           if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
@@ -720,10 +841,11 @@ export class ScheduleStore {
 
   /** Setzt eine Hilfskraft auf die angegebenen Slots, ohne andere zu verdrängen. */
   assignToSlots(keys: SlotKeyLike[], assistantId: string): void {
-    if (!keys.length) return;
+    const targets = this.withoutVacation(keys, assistantId);
+    if (!targets.length) return;
     this._state.update((s) => {
       const assignments = { ...s.assignments };
-      for (const key of keys) {
+      for (const key of targets) {
         const current = assignments[key] ?? [];
         if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
       }
@@ -736,9 +858,14 @@ export class ScheduleStore {
    * Quelle und Ziel werden in einem Schritt geändert, damit beim Ziehen kein
    * Zwischenzustand entsteht, in dem die Person nirgends eingeteilt ist —
    * insbesondere dann nicht, wenn sich Quelle und Ziel überschneiden.
+   *
+   * Fällt auch nur ein Zielslot auf einen Urlaubstag, wird die gesamte
+   * Verschiebung verweigert (alles oder nichts): ein teilweise verschobener
+   * Block würde sonst unbemerkt Stunden verlieren.
    */
   moveAssignment(from: SlotKeyLike | SlotKeyLike[], to: SlotKeyLike[], assistantId: string): void {
     if (!to.length) return;
+    if (this.withoutVacation(to, assistantId).length !== to.length) return;
     const sources = Array.isArray(from) ? from : [from];
     this._state.update((s) => {
       const assignments = { ...s.assignments };

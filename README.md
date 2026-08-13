@@ -63,6 +63,24 @@ Aufbau der Wochenpläne in beiden Modi, angebrochene Wochen am Rand des Zeitraum
 Übertragen zwischen Wochen, der Moduswechsel und die Migration älterer Stände. Die Komponenten sind bewusst nicht getestet — sie enthalten
 nur Darstellung, die Logik liegt vollständig im Store.
 
+## Urlaub
+
+Nur im Ferienplan verfügbar, weil nur dort Slots einem Kalendertag entsprechen — der Semesterplan
+kennt keine Daten, gegen die sich ein Urlaubszeitraum prüfen ließe. In Schritt 2 lässt sich für
+die gewählte Hilfskraft ein Datumsbereich als Urlaub eintragen (auch tagesweise, indem „bis"
+leer bleibt).
+
+Urlaub ist ein **echter Blocker**, keine bloße Warnung: eine Zuweisung an einem Urlaubstag lässt
+sich über keinen der drei Wege — Klick, Blockmarkierung, Drag & Drop — herstellen. Betroffene
+Zellen im Verfügbarkeitsraster sind gesperrt und lassen sich nicht anklicken; im Dienstplan wird
+die Person in der Kandidatenliste ausgegraut angezeigt und ist nicht mehr ziehbar. Wird Urlaub
+eingetragen, während die Person bereits für einen Termin im betroffenen Zeitraum eingeteilt ist,
+wird diese Zuweisung automatisch entfernt.
+
+Entsteht eine solche Kollision dennoch — etwa durch das Einlesen einer älteren, von Hand
+bearbeiteten JSON-Datei —, meldet sie sich als Fehler in den Hinweisen, genau wie ein
+„Nein“ oder eine fehlende Antwort.
+
 ## Bedienung des Dienstplans
 
 - **Klick** wählt eine Stunde, **Umschalt-Klick** erweitert die Auswahl zu einem Block. Ein Block

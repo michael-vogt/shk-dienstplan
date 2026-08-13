@@ -98,6 +98,19 @@ export interface WeekPlan {
   dates: { weekday: Weekday; date: IsoDate }[];
 }
 
+/**
+ * Urlaub einer Hilfskraft, beide Grenzen inklusive. Nur im Ferienplan
+ * wirksam, weil nur dort Slots einem konkreten Kalendertag entsprechen —
+ * der Semesterplan ist eine datumslose Musterwoche.
+ */
+export interface Vacation {
+  id: string;
+  assistantId: string;
+  from: IsoDate;
+  to: IsoDate;
+  note?: string;
+}
+
 export interface Assistant {
   id: string;
   name: string;
@@ -106,13 +119,14 @@ export interface Assistant {
 }
 
 export interface ScheduleState {
-  version: 4;
+  version: 5;
   title: string;
   mode: PlanMode;
   /** Nur im Ferienmodus ausgewertet. */
   period: Period;
   openingHours: OpeningHours[];
   assistants: Assistant[];
+  vacations: Vacation[];
   /** assistantId -> SlotKey -> Antwort. */
   availability: Record<string, Record<SlotKey, Availability>>;
   /** SlotKey -> eingeteilte assistantIds. */
@@ -225,4 +239,8 @@ export function formatDateLong(iso: IsoDate): string {
 
 export function formatHour(hour: number): string {
   return `${String(hour).padStart(2, '0')}:00`;
+}
+
+export function isWithin(iso: IsoDate, from: IsoDate, to: IsoDate): boolean {
+  return iso >= from && iso <= to;
 }

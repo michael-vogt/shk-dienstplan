@@ -27,6 +27,7 @@ interface Candidate {
   assistant: Assistant;
   answer: BlockAnswer;
   coverage: 'none' | 'some' | 'all';
+  onVacation: boolean;
 }
 
 @Component({
@@ -110,6 +111,8 @@ export class RosterComponent {
    */
   readonly candidates = computed<Candidate[]>(() => {
     const keys = this.selectedKeys();
+    const slots = this.selectedSlots();
+    const firstDate = slots[0]?.date ?? null;
     if (!keys.length) return [];
     const rank: Record<string, number> = { yes: 0, mixed: 1, ifNeeded: 1, unset: 2, no: 3 };
     return this.store
@@ -120,9 +123,13 @@ export class RosterComponent {
           assistant,
           answer: this.summarize(answers),
           coverage: this.store.assignmentCoverage(keys, assistant.id),
+          onVacation: !!firstDate && this.store.isOnVacation(assistant.id, firstDate),
         } satisfies Candidate;
       })
-      .sort((a, b) => (rank[a.answer] ?? 2) - (rank[b.answer] ?? 2));
+      .sort((a, b) => {
+        if (a.onVacation !== b.onVacation) return a.onVacation ? 1 : -1;
+        return (rank[a.answer] ?? 2) - (rank[b.answer] ?? 2);
+      });
   });
 
   /**
@@ -199,6 +206,7 @@ export class RosterComponent {
   }
 
   answerLabel(candidate: Candidate): string {
+    if (candidate.onVacation) return 'Urlaub';
     switch (candidate.answer) {
       case 'unset':
         return 'keine Antwort';
@@ -263,6 +271,10 @@ export class RosterComponent {
   }
 
   toggle(assistantId: string): void {
+    // Der Store würde eine Zuweisung ohnehin verweigern; die Prüfung hier
+    // vermeidet nur die unnötige Zustandsänderung beim Entfernen-Reflex.
+    const candidate = this.candidates().find((c) => c.assistant.id === assistantId);
+    if (candidate?.onVacation && candidate.coverage !== 'all') return;
     this.lastMove.set(null);
     this.store.toggleAssignmentForSlots(this.selectedKeys(), assistantId);
   }
@@ -372,10 +384,16 @@ export class RosterComponent {
     if (!this.dragged()) return;
     event.preventDefault();
     if (event.dataTransfer) {
-      // Aus der Seitenleiste wird immer hinzugefügt, aus einer Stunde heraus
-      // verschoben — sofern nicht die Kopiertaste gedrückt ist.
-      const moving = !!this.dragged()?.fromKey && !this.isCopy(event);
-      event.dataTransfer.dropEffect = moving ? 'move' : 'copy';
+      if (this.isDropBlocked(weekday, hour)) {
+        // Zeigt den Verboten-Cursor, statt den Abwurf nur stillschweigend
+        // zu ignorieren — die Sperre soll beim Ziehen sichtbar sein.
+        event.dataTransfer.dropEffect = 'none';
+      } else {
+        // Aus der Seitenleiste wird immer hinzugefügt, aus einer Stunde heraus
+        // verschoben — sofern nicht die Kopiertaste gedrückt ist.
+        const moving = !!this.dragged()?.fromKey && !this.isCopy(event);
+        event.dataTransfer.dropEffect = moving ? 'move' : 'copy';
+      }
     }
     this.dropTarget.set(this.key(weekday, hour));
   }
@@ -469,6 +487,17 @@ export class RosterComponent {
    * Hervorhebung beim Schweben. Sie zeigt genau die Slots, die der Abwurf
    * treffen würde — inklusive einer verschobenen Schicht am Tagesrand.
    */
+  /**
+   * Ist das Ziel unter dem Zeiger für die gezogene Person gesperrt? Prüft nur
+   * den ersten betroffenen Tag — ein Block liegt ja immer in einer Spalte.
+   */
+  isDropBlocked(weekday: Weekday, hour: number): boolean {
+    const drag = this.dragged();
+    const date = this.dateOf(this.selectedWeek(), weekday);
+    if (!drag || !date) return false;
+    return this.store.isOnVacation(drag.assistantId, date);
+  }
+
   isDropTarget(weekday: Weekday, hour: number): boolean {
     const target = this.dropTarget();
     const drag = this.dragged();
@@ -484,7 +513,7 @@ export class RosterComponent {
   }
 
   answerClass(candidate: Candidate): string {
-    return 'a-' + candidate.answer;
+    return candidate.onVacation ? 'a-vacation' : 'a-' + candidate.answer;
   }
 
   copyFrom(event: Event): void {

@@ -215,6 +215,142 @@ describe('Einteilung', () => {
   });
 });
 
+describe('Urlaub', () => {
+  it('blockiert nur im Ferienplan, nicht im Semesterplan', () => {
+    const withDates = makeStore(breakPlan());
+    withDates.addVacation('a1', '2026-08-10', '2026-08-10');
+    expect(withDates.isOnVacation('a1', '2026-08-10')).toBe(true);
+
+    // Der Semesterplan hat keine Kalendertage — die Sperre kann dort nicht
+    // greifen, deshalb wird toggleAssignment nie verweigert.
+    const withoutDates = makeStore(semester());
+    withoutDates.addVacation('a1', '2026-08-10', '2026-08-10');
+    withoutDates.toggleAssignment('semester|1-9', 'a1');
+    expect(withoutDates.assignedTo('semester|1-9')).toEqual(['a1']);
+  });
+
+  it('verhindert eine einzelne Zuweisung am Urlaubstag', () => {
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-10', '2026-08-10');
+    store.toggleAssignment('2026-08-10|1-9', 'a1');
+    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
+  });
+
+  it('erlaubt Zuweisungen an anderen Tagen unverändert', () => {
+    // Wochenschlüssel ist immer der Montag; Dienstag der ersten Woche liegt
+    // also unter '2026-08-10', nicht unter seinem eigenen Datum.
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-10', '2026-08-10');
+    store.toggleAssignment('2026-08-10|2-9', 'a1');
+    expect(store.assignedTo('2026-08-10|2-9')).toEqual(['a1']);
+  });
+
+  it('lässt das Entfernen einer Zuweisung trotz Urlaub zu', () => {
+    // Urlaub kann rückwirkend eingetragen worden sein; entfernen muss
+    // trotzdem möglich bleiben, nur das Hinzufügen wird gesperrt.
+    const store = makeStore(breakPlan({ assignments: { '2026-08-10|1-9': ['a1'] } }));
+    store.addVacation('a1', '2026-08-10', '2026-08-10');
+    // addVacation räumt selbst schon auf — hier zusätzlich prüfen, dass ein
+    // erneuter Toggle-Aufruf auf eine (hypothetisch) verbliebene Zuweisung
+    // nicht blockiert würde.
+    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
+  });
+
+  it('lässt einen Block nur an den nicht gesperrten Stunden auffüllen', () => {
+    // Ein Block liegt innerhalb eines Tages, Urlaub gilt tagesweise — die
+    // Sperre betrifft hier den ganzen Block gleichermaßen.
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-10', '2026-08-10');
+    store.toggleAssignmentForSlots(['2026-08-10|1-9', '2026-08-10|1-10'], 'a1');
+    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
+    expect(store.assignedTo('2026-08-10|1-10')).toEqual([]);
+  });
+
+  it('blockiert das Zuweisen per Ziehen aus der Liste', () => {
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-10', '2026-08-10');
+    store.assignToSlots(['2026-08-10|1-9'], 'a1');
+    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
+  });
+
+  it('verweigert eine Verschiebung ganz, wenn nur ein Zielslot gesperrt ist', () => {
+    // Alles-oder-nichts: ein teilweise verschobener Block würde sonst
+    // unbemerkt Stunden verlieren.
+    const store = makeStore(
+      breakPlan({ assignments: { '2026-08-10|1-9': ['a1'], '2026-08-10|1-10': ['a1'] } }),
+    );
+    store.addVacation('a1', '2026-08-11', '2026-08-11');
+    store.moveAssignment(
+      ['2026-08-10|1-9', '2026-08-10|1-10'],
+      ['2026-08-10|2-9', '2026-08-10|2-10'],
+      'a1',
+    );
+    // Die Verschiebung wurde verweigert — Quelle bleibt unverändert.
+    expect(store.assignedTo('2026-08-10|1-9')).toEqual(['a1']);
+    expect(store.assignedTo('2026-08-10|2-9')).toEqual([]);
+  });
+
+  it('entfernt beim Eintragen rückwirkend bereits geplante Stunden im Zeitraum', () => {
+    const store = makeStore(
+      breakPlan({
+        assignments: {
+          '2026-08-10|1-9': ['a1', 'a2'],
+          '2026-08-10|2-9': ['a1'],
+          '2026-08-17|1-9': ['a1'],
+        },
+      }),
+    );
+    store.addVacation('a1', '2026-08-10', '2026-08-12');
+    // Beide betroffenen Termine sind bereinigt, andere Hilfskräfte bleiben.
+    expect(store.assignedTo('2026-08-10|1-9')).toEqual(['a2']);
+    expect(store.assignedTo('2026-08-10|2-9')).toEqual([]);
+    // Außerhalb des Urlaubszeitraums bleibt die Zuweisung bestehen.
+    expect(store.assignedTo('2026-08-17|1-9')).toEqual(['a1']);
+  });
+
+  it('meldet eine trotzdem bestehende Zuweisung als Fehler', () => {
+    // Kann nur durch einen importierten Stand entstehen, da die Store-Wege
+    // selbst keine solche Zuweisung zulassen.
+    const store = makeStore(
+      breakPlan({
+        assignments: { '2026-08-10|1-9': ['a1'] },
+        vacations: [{ id: 'v1', assistantId: 'a1', from: '2026-08-10', to: '2026-08-10' }],
+      }),
+    );
+    const forSlot = store.warningsBySlot().get('2026-08-10|1-9') ?? [];
+    expect(forSlot.some((w) => w.level === 'error' && w.message.includes('Urlaub'))).toBe(true);
+  });
+
+  it('räumt Urlaub beim Entfernen der Hilfskraft mit auf', () => {
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-10', '2026-08-10');
+    store.removeAssistant('a1');
+    expect(store.vacationsOf('a1')).toEqual([]);
+  });
+
+  it('lässt sich wieder entfernen', () => {
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-10', '2026-08-10');
+    const id = store.vacationsOf('a1')[0]!.id;
+    store.removeVacation(id);
+    expect(store.isOnVacation('a1', '2026-08-10')).toBe(false);
+  });
+
+  it('erlaubt einen tagesweisen Urlaub (from === to)', () => {
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-12', '2026-08-12');
+    expect(store.isOnVacation('a1', '2026-08-12')).toBe(true);
+    expect(store.isOnVacation('a1', '2026-08-11')).toBe(false);
+    expect(store.isOnVacation('a1', '2026-08-13')).toBe(false);
+  });
+
+  it('dreht vertauschte Datumsgrenzen', () => {
+    const store = makeStore(breakPlan());
+    store.addVacation('a1', '2026-08-12', '2026-08-10');
+    expect(store.vacationsOf('a1')[0]).toMatchObject({ from: '2026-08-10', to: '2026-08-12' });
+  });
+});
+
 describe('Blockzuweisung', () => {
   const BLOCK = ['semester|1-9', 'semester|1-10', 'semester|1-11'];
 
@@ -486,7 +622,7 @@ describe('Migration älterer Stände', () => {
       availability: { a1: { '1-9': 'yes' } },
       assignments: { '1-9': ['a1'], '3-10': ['a1', 'a2'] },
     });
-    expect(state.version).toBe(4);
+    expect(state.version).toBe(5);
     expect(state.mode).toBe('semester');
     expect(state.title).toBe('Alter Plan');
     expect(state.assignments['semester|1-9']).toEqual(['a1']);
@@ -528,7 +664,7 @@ describe('Migration älterer Stände', () => {
   });
 
   it('verkraftet kaputte Eingaben', () => {
-    expect(normalizeState(null).version).toBe(4);
+    expect(normalizeState(null).version).toBe(5);
     expect(normalizeState('kaputt').mode).toBe('semester');
     expect(normalizeState({}).assistants).toEqual([]);
   });

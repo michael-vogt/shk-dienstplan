@@ -334,6 +334,12 @@ td.closed {
   background: #dce8f5;
   box-shadow: inset 0 0 0 2px var(--accent);
 }
+/* Ablegeziel, das für die gezogene Person Urlaub ist: rot statt blau, damit
+   die Sperre schon während des Ziehens auffällt, nicht erst danach. */
+.cell.drop-target.drop-blocked {
+  background: #f6e4e4;
+  box-shadow: inset 0 0 0 2px var(--error);
+}
 .pill[draggable='true'] {
   cursor: grab;
 }
@@ -375,6 +381,17 @@ td.closed {
 .a-mixed {
   background: #e4e9ef;
   color: #3c4a5a;
+}
+.a-vacation {
+  background: #ece6f0;
+  color: #4a3a63;
+}
+.candidate.blocked {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.candidate.blocked[draggable='true'] {
+  cursor: not-allowed;
 }
 .select-hint {
   font-size: 0.72rem;

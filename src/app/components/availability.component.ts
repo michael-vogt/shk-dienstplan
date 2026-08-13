@@ -13,6 +13,8 @@ import {
   formatDateLong,
   formatHour,
   slotKey,
+  startOfWeek,
+  addDays,
 } from '../models/schedule.model';
 import { ScheduleStore } from '../services/schedule-store.service';
 
@@ -88,7 +90,15 @@ export class AvailabilityComponent {
     return this.store.getAvailability(id, this.key(weekday, hour));
   }
 
+  /** Urlaub sperrt nur im Ferienplan — dort hat die Spalte einen Kalendertag. */
+  isVacation(weekday: Weekday): boolean {
+    const id = this.selectedId();
+    const date = this.dateOf(weekday);
+    return !!id && !!date && this.store.isOnVacation(id, date);
+  }
+
   cellLabel(weekday: Weekday, hour: number): string {
+    if (this.isVacation(weekday)) return 'Urlaub';
     const value = this.answer(weekday, hour);
     if (value === 'yes') return 'Ja';
     if (value === 'ifNeeded') return 'Notfalls';
@@ -97,6 +107,7 @@ export class AvailabilityComponent {
   }
 
   cellTitle(weekday: Weekday, hour: number): string {
+    if (this.isVacation(weekday)) return WEEKDAY_SHORT[weekday] + ': Urlaub eingetragen';
     const value = this.answer(weekday, hour);
     const label = value ? AVAILABILITY_LABELS[value] : 'Noch nicht beantwortet';
     return WEEKDAY_SHORT[weekday] + ' ' + this.time(hour) + ': ' + label;
@@ -108,7 +119,9 @@ export class AvailabilityComponent {
 
   cycle(weekday: Weekday, hour: number): void {
     const id = this.selectedId();
-    if (id) this.store.cycleAvailability(id, this.key(weekday, hour));
+    // Während des Urlaubs lässt sich nichts eintragen — dort ist die Frage
+    // nach der Verfügbarkeit gegenstandslos.
+    if (id && !this.isVacation(weekday)) this.store.cycleAvailability(id, this.key(weekday, hour));
   }
 
   setAll(value: Availability | undefined): void {
@@ -155,5 +168,56 @@ export class AvailabilityComponent {
     if (confirm(name + ' entfernen? Verfügbarkeiten und Einteilungen gehen dabei verloren.')) {
       this.store.removeAssistant(id);
     }
+  }
+
+  // --- Urlaub -----------------------------------------------------------
+  // Nur im Ferienplan sinnvoll: der Semesterplan hat keine Kalendertage,
+  // gegen die sich ein Datumsbereich prüfen ließe.
+
+  /**
+   * „Von"-Datum als Signal statt als reine Elementreferenz, damit ein Klick
+   * auf eine Spaltenüberschrift es von außen setzen kann — die Urlaubsfelder
+   * liegen in einem eigenen `@if`-Block und wären per Vorlagenreferenz vom
+   * Tabellenkopf aus nicht erreichbar.
+   */
+  readonly vacationFrom = signal('');
+
+  /** Klick auf eine Spaltenüberschrift übernimmt deren Datum als Urlaubsbeginn. */
+  fillVacationFrom(weekday: Weekday): void {
+    const date = this.dateOf(weekday);
+    if (date) this.vacationFrom.set(date);
+  }
+
+  setVacationFrom(event: Event): void {
+    this.vacationFrom.set((event.target as HTMLInputElement).value);
+  }
+
+  readonly vacationsOfSelected = computed(() => {
+    const id = this.selectedId();
+    this.store.vacations(); // Abhängigkeit, damit das computed reagiert.
+    return id ? this.store.vacationsOf(id) : [];
+  });
+
+  /**
+   * Bleibt „Bis" leer, gilt der Urlaub für die ganze angezeigte Woche —
+   * also bis zu deren letztem Öffnungstag, nicht nur bis Kalenderfreitag.
+   */
+  addVacation(to: HTMLInputElement, note: HTMLInputElement): void {
+    const id = this.selectedId();
+    const from = this.vacationFrom();
+    if (!id || !from) return;
+    const toDate = to.value || this.weekEnd(from);
+    this.store.addVacation(id, from, toDate, note.value);
+    this.vacationFrom.set('');
+    to.value = '';
+    note.value = '';
+  }
+
+  /** Letzter Öffnungstag der Woche, in der das Datum liegt. */
+  private weekEnd(date: IsoDate): IsoDate {
+    const monday = startOfWeek(date);
+    const plan = this.store.weekPlans().find((p) => p.key === monday);
+    const last = plan?.dates.at(-1)?.date;
+    return last ?? addDays(monday, 4);
   }
 }

@@ -139,6 +139,14 @@
   font-size: 0.8rem;
   background: var(--surface-2);
 }
+/* Übernimmt beim Klick das Datum als Urlaubsbeginn — nur im Ferienplan aktiv,
+   wo Spalten überhaupt ein Datum tragen. */
+.grid thead th.pickable {
+  cursor: pointer;
+}
+.grid thead th.pickable:hover {
+  background: #e4ecf5;
+}
 .col-action {
   display: block;
   margin: 0.2rem auto 0;
@@ -247,4 +255,63 @@ td.closed {
   thead {
     display: table-header-group;
   }
+}
+
+.sub {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 1.5rem 0 0.4rem;
+}
+.state-vacation {
+  background: repeating-linear-gradient(
+    45deg,
+    #ece6f0,
+    #ece6f0 6px,
+    #e2d9e8 6px,
+    #e2d9e8 12px
+  );
+  color: #4a3a63;
+  cursor: not-allowed;
+}
+.add-vacation {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.add-vacation input[type='date'] {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+.vacations {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.vacations li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.88rem;
+}
+.vacations .range {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.vacations .note {
+  color: var(--muted);
+}
+.vacations .spacer {
+  flex: 1 1 auto;
 }

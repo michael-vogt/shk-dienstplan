@@ -105,12 +105,20 @@
         <tr>
           <th class="corner">Uhrzeit</th>
           @for (day of store.openWeekdays(); track day) {
-            <th>
+            <th
+              [class.pickable]="store.isBreakMode() && dateOf(day)"
+              [attr.title]="
+                  store.isBreakMode() && dateOf(day)
+                    ? 'Als Urlaubsbeginn übernehmen'
+                    : null
+                "
+              (click)="fillVacationFrom(day)"
+            >
               {{ short(day) }}
               @if (dateOf(day); as date) {
                 <span class="col-date">{{ formatDate(date) }}</span>
               }
-              <button type="button" class="col-action" (click)="setColumn(day, 'yes')">
+              <button type="button" class="col-action" (click)="setColumn(day, 'yes'); $event.stopPropagation()">
                 alle Ja
               </button>
             </th>
@@ -126,8 +134,9 @@
                   <td>
                     <button
                       type="button"
-                      [class]="'cell state-' + (answer(day, hour) ?? 'unset')"
+                      [class]="'cell state-' + (isVacation(day) ? 'vacation' : (answer(day, hour) ?? 'unset'))"
                       [attr.title]="cellTitle(day, hour)"
+                      [disabled]="isVacation(day)"
                       (click)="cycle(day, hour)"
                     >
                       {{ cellLabel(day, hour) }}
@@ -148,6 +157,55 @@
       <li><span class="swatch state-ifNeeded"></span> Wenn es sein muss</li>
       <li><span class="swatch state-no"></span> Nein</li>
       <li><span class="swatch state-unset"></span> Noch offen</li>
+      @if (store.isBreakMode()) {
+        <li><span class="swatch state-vacation"></span> Urlaub</li>
+      }
     </ul>
+
+    @if (store.isBreakMode()) {
+      <h3 class="sub">Urlaub</h3>
+      <p class="hint">
+        Blockiert die Zuweisung an diesen Tagen — bereits geplante Stunden werden beim Eintragen
+        automatisch entfernt. Auf einen Tag oben in der Kopfzeile klicken, um ihn als
+        Urlaubsbeginn zu übernehmen; bleibt „Bis" leer, gilt der Urlaub für die ganze Woche.
+      </p>
+      <div class="add-vacation">
+        <input
+          type="date"
+          aria-label="Urlaub von"
+          [value]="vacationFrom()"
+          (change)="setVacationFrom($event)"
+        />
+        <input #vacationTo type="date" aria-label="Urlaub bis (leer = ganze Woche)" />
+        <input #vacationNote type="text" placeholder="Grund (optional)" />
+        <button type="button" class="btn" (click)="addVacation(vacationTo, vacationNote)">
+          Eintragen
+        </button>
+      </div>
+
+      @if (vacationsOfSelected().length) {
+        <ul class="vacations">
+          @for (vacation of vacationsOfSelected(); track vacation.id) {
+            <li>
+              <span class="range">
+                {{ formatDateLong(vacation.from) }}
+                @if (vacation.to !== vacation.from) {
+                  – {{ formatDateLong(vacation.to) }}
+                }
+              </span>
+              @if (vacation.note) {
+                <span class="note">{{ vacation.note }}</span>
+              }
+              <span class="spacer"></span>
+              <button type="button" class="ghost" (click)="store.removeVacation(vacation.id)">
+                Entfernen
+              </button>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="empty">Kein Urlaub eingetragen.</p>
+      }
+    }
   }
 </section>
