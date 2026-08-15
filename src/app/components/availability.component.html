@@ -162,6 +162,53 @@
       }
     </ul>
 
+    <h3 class="sub">Übersicht: Grundverfügbarkeit der Woche</h3>
+    <p class="hint">
+      Wie viele Hilfskräfte je Stunde mit „Ja" oder „Wenn es sein muss" geantwortet haben —
+      unabhängig davon, welche Person links ausgewählt ist. Zählt Urlaub nicht mit.
+    </p>
+    <div class="grid-scroll">
+      <table class="grid overview">
+        <thead>
+        <tr>
+          <th class="corner">Uhrzeit</th>
+          @for (day of store.openWeekdays(); track day) {
+            <th>
+              {{ short(day) }}
+              @if (dateOf(day); as date) {
+                <span class="col-date">{{ formatDate(date) }}</span>
+              }
+            </th>
+          }
+        </tr>
+        </thead>
+        <tbody>
+          @for (hour of store.hourRows(); track hour) {
+            <tr>
+              <th scope="row" class="time">{{ time(hour) }}</th>
+              @for (day of store.openWeekdays(); track day) {
+                @if (isOpen(day, hour)) {
+                  <td>
+                    <span
+                      [class]="'overview-cell level-' + overviewLevel(day, hour)"
+                      [attr.title]="
+                        overviewCount(day, hour) + ' von ' + totalAssistants() +
+                        ' Hilfskräften grundsätzlich verfügbar'
+                      "
+                    >
+                      {{ overviewCount(day, hour) }}
+                    </span>
+                  </td>
+                } @else {
+                  <td class="closed"></td>
+                }
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
     @if (store.isBreakMode()) {
       <h3 class="sub">Urlaub</h3>
       <p class="hint">

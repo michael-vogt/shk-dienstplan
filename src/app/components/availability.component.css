@@ -264,6 +264,31 @@ td.closed {
   color: var(--muted);
   margin: 1.5rem 0 0.4rem;
 }
+/* Wochenübersicht: kompaktere Zeilen als das Bearbeitungsraster, da hier nur
+   eine Zahl steht statt eines Klick-Zustands. */
+.grid.overview .time {
+  padding: 0.15rem 0.5rem;
+}
+.overview-cell {
+  display: block;
+  text-align: center;
+  padding: 0.3rem 0.2rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.overview-cell.level-none {
+  background: #f6e4e4;
+  color: #8a3a3a;
+}
+.overview-cell.level-low {
+  background: #f7e5c2;
+  color: #7a4c05;
+}
+.overview-cell.level-ok {
+  background: #d6ece0;
+  color: #14563a;
+}
 .state-vacation {
   background: repeating-linear-gradient(
     45deg,

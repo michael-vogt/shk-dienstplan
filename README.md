@@ -63,6 +63,14 @@ Aufbau der Wochenpläne in beiden Modi, angebrochene Wochen am Rand des Zeitraum
 Übertragen zwischen Wochen, der Moduswechsel und die Migration älterer Stände. Die Komponenten sind bewusst nicht getestet — sie enthalten
 nur Darstellung, die Logik liegt vollständig im Store.
 
+## Wochenübersicht in den Verfügbarkeiten
+
+Unterhalb der Bearbeitungsmatrix zeigt eine zweite, kompakte Tabelle je Slot die Zahl der
+Hilfskräfte mit „Ja" oder „Wenn es sein muss" — unabhängig davon, welche Person links gerade
+bearbeitet wird. Urlaub schlägt eine vorher eingetragene Antwort: wer an diesem Tag Urlaub hat,
+zählt nicht mit. Die Färbung ist eine grobe Einstufung (0 rot, 1 gelb, ab 2 grün), gedacht als
+schneller Blick darauf, welche Stunden dünn besetzt sind, bevor die Einteilung beginnt.
+
 ## Theke und Büro
 
 Grundsätzlich arbeiten Hilfskräfte an der Ausleihtheke — das ist der Normalfall und wird nicht

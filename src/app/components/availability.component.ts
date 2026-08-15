@@ -117,6 +117,29 @@ export class AvailabilityComponent {
     return this.store.answeredCount(assistantId, this.selectedWeek());
   }
 
+  // --- Wochenübersicht --------------------------------------------------
+  // Aggregat über alle Hilfskräfte, unabhängig von der links ausgewählten
+  // Person — zeigt auf einen Blick, wo die Deckung dünn ist.
+
+  readonly totalAssistants = computed(() => this.store.assistants().length);
+
+  overviewCount(weekday: Weekday, hour: number): number {
+    return this.store.availableCount(this.key(weekday, hour), this.dateOf(weekday));
+  }
+
+  /**
+   * Grobe Einstufung für die Färbung: 0 ist ein echtes Problem, 1 knapp
+   * (keine Rückfalloption), ab 2 komfortabel. Bewusst ein fester Schwellwert
+   * statt relativ zur Gesamtzahl der Hilfskräfte — für die Besetzung einer
+   * einzelnen Stunde zählt die absolute Zahl, nicht der Anteil am Team.
+   */
+  overviewLevel(weekday: Weekday, hour: number): 'none' | 'low' | 'ok' {
+    const count = this.overviewCount(weekday, hour);
+    if (count === 0) return 'none';
+    if (count === 1) return 'low';
+    return 'ok';
+  }
+
   cycle(weekday: Weekday, hour: number): void {
     const id = this.selectedId();
     // Während des Urlaubs lässt sich nichts eintragen — dort ist die Frage

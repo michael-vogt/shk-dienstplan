@@ -1,785 +1,1037 @@
-import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
-import { ScheduleStore, normalizeState } from './schedule-store.service';
-import { ScheduleState, slotKey } from '../models/schedule.model';
+import { Service, computed, effect, signal } from '@angular/core';
+import {
+  AVAILABILITY_ORDER,
+  Availability,
+  IsoDate,
+  OpeningHours,
+  PlanMode,
+  SEMESTER_WEEK,
+  ScheduleState,
+  Vacation,
+  ScheduleWarning,
+  Slot,
+  WEEKDAYS,
+  WEEKDAY_SHORT,
+  WeekKey,
+  WeekPlan,
+  Weekday,
+  addDays,
+  formatDate,
+  formatHour,
+  isValidIso,
+  isoWeekNumber,
+  isWithin,
+  slotKey,
+  startOfWeek,
+  toIso,
+  weekdayOf,
+  weekdaySlotKey,
+} from '../models/schedule.model';
 
-/** Zwei volle Wochen ab Montag, 10.08.2026. */
-const PERIOD = { start: '2026-08-10', end: '2026-08-23' };
+const STORAGE_KEY = 'shk-dienstplan.v1';
 
-const OPENING = [
-  { weekday: 1 as const, open: true, start: 9, end: 12 },
-  { weekday: 2 as const, open: true, start: 9, end: 12 },
-  { weekday: 3 as const, open: true, start: 9, end: 12 },
-  { weekday: 4 as const, open: true, start: 9, end: 12 },
-  { weekday: 5 as const, open: false, start: 9, end: 12 },
+const PALETTE = [
+  '#2d5d8f',
+  '#1f7a54',
+  '#a8523c',
+  '#6b4f9e',
+  '#0f7b8a',
+  '#94651a',
+  '#a63d63',
+  '#3f6b2b',
 ];
 
-const STAFF = [
-  { id: 'a1', name: 'Lena', color: '#2d5d8f' },
-  { id: 'a2', name: 'Jonas', color: '#1f7a54' },
-];
-
-function makeStore(state?: Partial<ScheduleState>): ScheduleStore {
-  localStorage.clear();
-  if (state) {
-    localStorage.setItem('shk-dienstplan.v1', JSON.stringify({ version: 4, ...state }));
+/**
+ * crypto.randomUUID() gibt es nur im sicheren Kontext (HTTPS oder localhost).
+ * Wird der Build über reines http:// ausgeliefert, greifen die Fallbacks.
+ * Die IDs müssen nur innerhalb eines Plans eindeutig sein, nicht global.
+ */
+function createId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
   }
-  TestBed.resetTestingModule();
-  return TestBed.inject(ScheduleStore);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
 
-function semester(extra: Partial<ScheduleState> = {}): Partial<ScheduleState> {
-  return { mode: 'semester', openingHours: OPENING, assistants: STAFF, ...extra };
+function clampHour(value: number): number {
+  if (!Number.isFinite(value)) return 9;
+  return Math.min(24, Math.max(0, Math.round(value)));
 }
 
-function breakPlan(extra: Partial<ScheduleState> = {}): Partial<ScheduleState> {
+/** Vorbelegung für den Ferienmodus: laufende Woche plus drei weitere. */
+function defaultPeriod(): { start: IsoDate; end: IsoDate } {
+  const start = startOfWeek(toIso(new Date()));
+  return { start, end: addDays(start, 4 * 7 - 3) };
+}
+
+function createDefaultState(): ScheduleState {
   return {
-    mode: 'break',
-    period: PERIOD,
-    openingHours: OPENING,
-    assistants: STAFF,
-    ...extra,
+    version: 6,
+    title: 'Dienstplan Bibliothek',
+    mode: 'semester',
+    period: defaultPeriod(),
+    openingHours: WEEKDAYS.map((weekday) => ({
+      weekday,
+      open: true,
+      start: 9,
+      end: 18,
+    })),
+    assistants: [],
+    vacations: [],
+    availability: {},
+    assignments: {},
+    officeWork: {},
   };
 }
 
-describe('Wochenpläne im Semestermodus', () => {
-  it('besteht aus genau einem Plan ohne Datumsbezug', () => {
-    const store = makeStore(semester());
-    const plans = store.weekPlans();
-    expect(plans).toHaveLength(1);
-    expect(plans[0]?.key).toBe('semester');
-    expect(plans[0]?.monday).toBeNull();
-    expect(plans[0]?.dates).toEqual([]);
+function loadState(): ScheduleState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return createDefaultState();
+    return normalizeState(JSON.parse(raw));
+  } catch {
+    return createDefaultState();
+  }
+}
+
+/**
+ * Hebt ältere Stände auf v4. Frühere Fassungen kannten den Modus noch nicht
+ * und speicherten Schlüssel ohne Wochenanteil (`1-9`) oder mit Datum
+ * (`2026-08-10T09`). Beides wird auf `weekKey|weekday-hour` gebracht.
+ */
+function migrateKeys(
+  raw: Record<string, unknown>,
+): { mode: PlanMode; assignments: Record<string, string[]> } {
+  const legacy = (raw['assignments'] ?? {}) as Record<string, unknown>;
+  const assignments: Record<string, string[]> = {};
+  let sawDate = false;
+
+  for (const [key, ids] of Object.entries(legacy)) {
+    if (!Array.isArray(ids) || !ids.length) continue;
+    const people = ids.filter((id): id is string => typeof id === 'string');
+    if (!people.length) continue;
+
+    if (key.includes('|')) {
+      // Bereits v4.
+      assignments[key] = people;
+      continue;
+    }
+
+    const dateMatch = /^(\d{4}-\d{2}-\d{2})T(\d{2})$/.exec(key);
+    if (dateMatch) {
+      // v2/v3: konkreter Termin -> Woche plus Wochentag.
+      const [, date, hour] = dateMatch;
+      const weekday = weekdayOf(date!);
+      if (weekday === null) continue;
+      sawDate = true;
+      assignments[slotKey(startOfWeek(date!), weekday, Number(hour))] = people;
+      continue;
+    }
+
+    const weekdayMatch = /^([1-5])-(\d{1,2})$/.exec(key);
+    if (weekdayMatch) {
+      // v1: wiederkehrende Woche -> Semesterplan.
+      const [, weekday, hour] = weekdayMatch;
+      assignments[slotKey(SEMESTER_WEEK, Number(weekday) as Weekday, Number(hour))] = people;
+    }
+  }
+
+  return { mode: sawDate ? 'break' : 'semester', assignments };
+}
+
+/**
+ * Hebt Verfügbarkeiten älterer Stände an. Bis v3 waren sie wochentagsbasiert
+ * und galten für den ganzen Plan — das entspricht dem Semesterplan.
+ */
+function migrateAvailability(
+  raw: Record<string, unknown>,
+  knownIds: Set<string>,
+): ScheduleState['availability'] {
+  const result: ScheduleState['availability'] = {};
+  const source = (raw['availability'] ?? {}) as Record<string, unknown>;
+
+  for (const [assistantId, bySlot] of Object.entries(source)) {
+    if (!knownIds.has(assistantId) || !bySlot || typeof bySlot !== 'object') continue;
+    const entries: Record<string, Availability> = {};
+    for (const [key, value] of Object.entries(bySlot as Record<string, unknown>)) {
+      if (!AVAILABILITY_ORDER.includes(value as Availability)) continue;
+      entries[key.includes('|') ? key : `${SEMESTER_WEEK}|${key}`] = value as Availability;
+    }
+    if (Object.keys(entries).length) result[assistantId] = entries;
+  }
+
+  // v3 kannte zusätzlich wochenweise Angaben in der vorlesungsfreien Zeit.
+  const weekly = (raw['weeklyAvailability'] ?? {}) as Record<string, unknown>;
+  for (const [assistantId, byWeek] of Object.entries(weekly)) {
+    if (!knownIds.has(assistantId) || !byWeek || typeof byWeek !== 'object') continue;
+    const entries = { ...(result[assistantId] ?? {}) };
+    for (const [monday, bySlot] of Object.entries(byWeek as Record<string, unknown>)) {
+      if (!isValidIso(monday) || !bySlot || typeof bySlot !== 'object') continue;
+      for (const [key, value] of Object.entries(bySlot as Record<string, unknown>)) {
+        if (AVAILABILITY_ORDER.includes(value as Availability)) {
+          entries[`${startOfWeek(monday)}|${key}`] = value as Availability;
+        }
+      }
+    }
+    if (Object.keys(entries).length) result[assistantId] = entries;
+  }
+
+  return result;
+}
+
+/** Prüft eine geladene oder importierte Struktur und füllt fehlende Felder auf. */
+export function normalizeState(input: unknown): ScheduleState {
+  const base = createDefaultState();
+  if (!input || typeof input !== 'object') return base;
+  const raw = input as Record<string, unknown>;
+
+  const rawPeriod = (raw['period'] ?? {}) as Record<string, unknown>;
+  const period = {
+    start: isValidIso(rawPeriod['start']) ? (rawPeriod['start'] as IsoDate) : base.period.start,
+    end: isValidIso(rawPeriod['end']) ? (rawPeriod['end'] as IsoDate) : base.period.end,
+  };
+  if (period.end < period.start) period.end = period.start;
+
+  const openingHours = WEEKDAYS.map((weekday) => {
+    const list = Array.isArray(raw['openingHours']) ? (raw['openingHours'] as OpeningHours[]) : [];
+    const found = list.find((o) => o?.weekday === weekday);
+    if (!found) return base.openingHours.find((o) => o.weekday === weekday)!;
+    const start = clampHour(found.start ?? 9);
+    const end = clampHour(found.end ?? 18);
+    return {
+      weekday,
+      open: found.open !== false && end > start,
+      start,
+      end: Math.max(end, start + 1),
+    } satisfies OpeningHours;
   });
 
-  it('erzeugt die Slots der Musterwoche', () => {
-    const store = makeStore(semester());
-    // Mo–Do je drei Stunden, Freitag geschlossen.
-    expect(store.slots()).toHaveLength(12);
-    expect(store.slotsPerWeek()).toBe(12);
-    expect(store.slots().every((s) => s.date === null)).toBe(true);
-    expect(store.slots()[0]?.key).toBe('semester|1-9');
-  });
-});
+  const assistantsRaw = Array.isArray(raw['assistants']) ? raw['assistants'] : [];
+  const assistants = assistantsRaw
+    .filter(
+      (a): a is { id: string; name: string; color?: string; note?: string } =>
+        !!a &&
+        typeof a === 'object' &&
+        typeof (a as { id?: unknown }).id === 'string' &&
+        typeof (a as { name?: unknown }).name === 'string',
+    )
+    .map((a, i) => ({
+      id: a.id,
+      name: a.name,
+      color: a.color || PALETTE[i % PALETTE.length]!,
+      note: a.note,
+    }));
 
-describe('Wochenpläne im Ferienmodus', () => {
-  it('erzeugt einen Plan je Kalenderwoche', () => {
-    const store = makeStore(breakPlan());
-    const plans = store.weekPlans();
-    expect(plans).toHaveLength(2);
-    expect(plans.map((p) => p.key)).toEqual(['2026-08-10', '2026-08-17']);
-    expect(plans[0]?.label).toBe('KW 33');
+  const knownIds = new Set(assistants.map((a) => a.id));
+  const availability = migrateAvailability(raw, knownIds);
+  const migrated = migrateKeys(raw);
+
+  const mode: PlanMode =
+    raw['mode'] === 'semester' || raw['mode'] === 'break' ? raw['mode'] : migrated.mode;
+
+  const assignments: ScheduleState['assignments'] = {};
+  for (const [key, ids] of Object.entries(migrated.assignments)) {
+    const kept = [...new Set(ids.filter((id) => knownIds.has(id)))];
+    if (kept.length) assignments[key] = kept;
+  }
+
+  const vacationsRaw = Array.isArray(raw['vacations']) ? raw['vacations'] : [];
+  const vacations: Vacation[] = [];
+  for (const item of vacationsRaw) {
+    if (!item || typeof item !== 'object') continue;
+    const v = item as Record<string, unknown>;
+    if (typeof v['assistantId'] !== 'string' || !knownIds.has(v['assistantId'])) continue;
+    if (!isValidIso(v['from']) || !isValidIso(v['to'])) continue;
+    const from = v['from'] as IsoDate;
+    const to = v['to'] as IsoDate;
+    vacations.push({
+      id: typeof v['id'] === 'string' ? v['id'] : createId(),
+      assistantId: v['assistantId'],
+      from: from <= to ? from : to,
+      to: from <= to ? to : from,
+      note: typeof v['note'] === 'string' ? v['note'] : undefined,
+    });
+  }
+  vacations.sort((a, b) => a.from.localeCompare(b.from));
+
+  const officeWork: ScheduleState['officeWork'] = {};
+  const rawOfficeWork = (raw['officeWork'] ?? {}) as Record<string, unknown>;
+  for (const [key, ids] of Object.entries(rawOfficeWork)) {
+    if (!Array.isArray(ids)) continue;
+    // Bewusst nicht gegen `assignments` geprüft: die Zugehörigkeit wird beim
+    // Lesen über isOfficeWork() erzwungen, nicht schon hier beim Speichern.
+    const kept = [...new Set(ids.filter((id): id is string => knownIds.has(id as string)))];
+    if (kept.length) officeWork[key] = kept;
+  }
+
+  return {
+    version: 6,
+    title: typeof raw['title'] === 'string' && raw['title'].trim() ? raw['title'] : base.title,
+    mode,
+    period,
+    openingHours,
+    assistants,
+    vacations,
+    availability,
+    assignments,
+    officeWork,
+  };
+}
+
+@Service()
+export class ScheduleStore {
+  private readonly _state = signal<ScheduleState>(loadState());
+
+  readonly state = this._state.asReadonly();
+  readonly title = computed(() => this._state().title);
+  readonly mode = computed(() => this._state().mode);
+  readonly isBreakMode = computed(() => this._state().mode === 'break');
+  readonly period = computed(() => this._state().period);
+  readonly assistants = computed(() => this._state().assistants);
+  readonly vacations = computed(() => this._state().vacations);
+
+  vacationsOf(assistantId: string): Vacation[] {
+    return this._state()
+      .vacations.filter((v) => v.assistantId === assistantId)
+      .sort((a, b) => a.from.localeCompare(b.from));
+  }
+
+  /**
+   * Ist die Hilfskraft an diesem Tag im Urlaub? Nur im Ferienplan aussagekräftig
+   * — der Semesterplan hat keine Kalendertage, gegen die sich prüfen ließe.
+   */
+  isOnVacation(assistantId: string, date: IsoDate): boolean {
+    return this._state().vacations.some(
+      (v) => v.assistantId === assistantId && isWithin(date, v.from, v.to),
+    );
+  }
+
+  /**
+   * Ist der Slot für diese Hilfskraft gesperrt? Grundlage für die
+   * Zuweisungssperre — im Gegensatz zu den übrigen Warnungen wird eine
+   * Zuweisung hier tatsächlich verhindert, nicht nur kommentiert.
+   */
+  isBlockedFor(assistantId: string, slot: Slot): boolean {
+    return !!slot.date && this.isOnVacation(assistantId, slot.date);
+  }
+  readonly openingHours = computed(() => this._state().openingHours);
+
+  /** Geöffnete Wochentage laut Standard — in beiden Modi dieselbe Grundlage. */
+  readonly openWeekdays = computed<Weekday[]>(() =>
+    this._state()
+      .openingHours.filter((o) => o.open)
+      .map((o) => o.weekday),
+  );
+
+  /** Stundenzeilen aus der Spannweite der Öffnungszeiten. */
+  readonly hourRows = computed<number[]>(() => {
+    const open = this._state().openingHours.filter((o) => o.open);
+    if (!open.length) return [];
+    const start = Math.min(...open.map((o) => o.start));
+    const end = Math.max(...open.map((o) => o.end));
+    return Array.from({ length: end - start }, (_, i) => start + i);
   });
 
-  it('hängt an jeden Wochentag den Kalendertag', () => {
-    const store = makeStore(breakPlan());
-    expect(store.dateOf('2026-08-10', 1)).toBe('2026-08-10');
-    expect(store.dateOf('2026-08-10', 4)).toBe('2026-08-13');
-    // Freitag ist geschlossen, also kein Datum.
-    expect(store.dateOf('2026-08-10', 5)).toBeNull();
+  /** Zellen eines einzelnen Wochenplans. */
+  readonly slotsPerWeek = computed(() =>
+    this._state()
+      .openingHours.filter((o) => o.open)
+      .reduce((sum, o) => sum + (o.end - o.start), 0),
+  );
+
+  /**
+   * Die Wochenpläne dieses Dienstplans: im Semestermodus genau einer ohne
+   * Datumsbezug, im Ferienmodus einer je Kalenderwoche im Zeitraum.
+   */
+  readonly weekPlans = computed<WeekPlan[]>(() => {
+    const state = this._state();
+    if (state.mode === 'semester') {
+      return [{ key: SEMESTER_WEEK, label: 'Musterwoche', monday: null, dates: [] }];
+    }
+
+    const openWeekdays = new Set(this.openWeekdays());
+    const plans: WeekPlan[] = [];
+    const { start, end } = state.period;
+
+    // Schutz vor versehentlich riesigen Zeiträumen (rund fünf Jahre).
+    for (
+      let monday = startOfWeek(start), guard = 0;
+      monday <= end && guard < 300;
+      monday = addDays(monday, 7), guard++
+    ) {
+      const dates: { weekday: Weekday; date: IsoDate }[] = [];
+      for (let offset = 0; offset < 5; offset++) {
+        const date = addDays(monday, offset);
+        if (date < start || date > end) continue;
+        const weekday = weekdayOf(date);
+        if (weekday === null || !openWeekdays.has(weekday)) continue;
+        dates.push({ weekday, date });
+      }
+      if (!dates.length) continue;
+      plans.push({
+        key: monday,
+        label: `KW ${isoWeekNumber(monday)}`,
+        monday,
+        dates,
+      });
+    }
+    return plans;
   });
 
-  it('schneidet angebrochene Wochen am Zeitraum ab', () => {
-    // Zeitraum beginnt am Mittwoch: Mo und Di gehören nicht dazu.
-    const store = makeStore(breakPlan({ period: { start: '2026-08-12', end: '2026-08-13' } }));
-    const plans = store.weekPlans();
-    expect(plans).toHaveLength(1);
-    expect(plans[0]?.dates.map((d) => d.date)).toEqual(['2026-08-12', '2026-08-13']);
-    expect(store.slots()).toHaveLength(6);
+  readonly slots = computed<Slot[]>(() => {
+    const result: Slot[] = [];
+    const openingHours = this._state().openingHours;
+
+    for (const plan of this.weekPlans()) {
+      const weekdays =
+        plan.monday === null
+          ? this.openWeekdays().map((weekday) => ({ weekday, date: null as IsoDate | null }))
+          : plan.dates.map((d) => ({ weekday: d.weekday, date: d.date as IsoDate | null }));
+
+      for (const { weekday, date } of weekdays) {
+        const hours = openingHours.find((o) => o.weekday === weekday);
+        if (!hours?.open) continue;
+        for (let hour = hours.start; hour < hours.end; hour++) {
+          result.push({
+            week: plan.key,
+            weekday,
+            hour,
+            key: slotKey(plan.key, weekday, hour),
+            weekdayKey: weekdaySlotKey(weekday, hour),
+            date,
+          });
+        }
+      }
+    }
+    return result;
   });
 
-  it('lässt Wochen ohne Öffnungstag ganz weg', () => {
-    // Zeitraum umfasst nur ein Wochenende.
-    const store = makeStore(breakPlan({ period: { start: '2026-08-15', end: '2026-08-16' } }));
-    expect(store.weekPlans()).toEqual([]);
-  });
-});
+  slotsOfWeek(week: WeekKey): Slot[] {
+    return this.slots().filter((s) => s.week === week);
+  }
 
-describe('Verfügbarkeit je Wochenplan', () => {
-  it('trennt die Angaben verschiedener Wochen', () => {
-    const store = makeStore(breakPlan());
-    store.setAvailability('a1', '2026-08-10|1-9', 'yes');
-    expect(store.getAvailability('a1', '2026-08-10|1-9')).toBe('yes');
-    // Dieselbe Stelle in der Folgewoche bleibt unbeantwortet.
-    expect(store.getAvailability('a1', '2026-08-17|1-9')).toBeUndefined();
-  });
+  /** Kalendertag einer Spalte im Ferienmodus, sonst null. */
+  dateOf(week: WeekKey, weekday: Weekday): IsoDate | null {
+    const plan = this.weekPlans().find((p) => p.key === week);
+    return plan?.dates.find((d) => d.weekday === weekday)?.date ?? null;
+  }
 
-  it('zählt den Beantwortungsstand je Woche', () => {
-    const store = makeStore(breakPlan());
-    store.setAvailability('a1', '2026-08-10|1-9', 'yes');
-    expect(store.answeredCount('a1', '2026-08-10')).toBe(1);
-    expect(store.answeredCount('a1', '2026-08-17')).toBe(0);
-  });
+  isOpenIn(week: WeekKey, weekday: Weekday, hour: number): boolean {
+    const plan = this.weekPlans().find((p) => p.key === week);
+    if (!plan) return false;
+    if (plan.monday !== null && !plan.dates.some((d) => d.weekday === weekday)) return false;
+    const hours = this._state().openingHours.find((o) => o.weekday === weekday);
+    return !!hours?.open && hour >= hours.start && hour < hours.end;
+  }
 
-  it('durchläuft die Zustände im Kreis', () => {
-    const store = makeStore(semester());
-    const key = 'semester|1-9';
-    expect(store.getAvailability('a1', key)).toBeUndefined();
-    store.cycleAvailability('a1', key);
-    expect(store.getAvailability('a1', key)).toBe('yes');
-    store.cycleAvailability('a1', key);
-    expect(store.getAvailability('a1', key)).toBe('ifNeeded');
-    store.cycleAvailability('a1', key);
-    expect(store.getAvailability('a1', key)).toBe('no');
-    store.cycleAvailability('a1', key);
-    expect(store.getAvailability('a1', key)).toBeUndefined();
+  readonly assignedCount = computed(() => {
+    const assignments = this._state().assignments;
+    return this.slots().filter((s) => (assignments[s.key]?.length ?? 0) > 0).length;
   });
 
-  it('überträgt Angaben von einer Woche in eine andere', () => {
-    const store = makeStore(breakPlan());
-    store.setAvailability('a1', '2026-08-10|1-9', 'yes');
-    store.setAvailability('a1', '2026-08-10|2-10', 'ifNeeded');
-    expect(store.copyAvailability('a1', '2026-08-10', '2026-08-17')).toBe(2);
-    expect(store.getAvailability('a1', '2026-08-17|1-9')).toBe('yes');
-    expect(store.getAvailability('a1', '2026-08-17|2-10')).toBe('ifNeeded');
-    // Die Quellwoche bleibt unverändert.
-    expect(store.getAvailability('a1', '2026-08-10|1-9')).toBe('yes');
+  /** Eingeteilte Stunden je Hilfskraft über den gesamten Dienstplan. */
+  readonly hoursByAssistant = computed<Record<string, number>>(() => {
+    const result: Record<string, number> = {};
+    for (const a of this._state().assistants) result[a.id] = 0;
+    for (const slot of this.slots()) {
+      for (const id of this._state().assignments[slot.key] ?? []) {
+        if (id in result) result[id] = (result[id] ?? 0) + 1;
+      }
+    }
+    return result;
   });
 
-  it('überträgt nichts auf sich selbst', () => {
-    const store = makeStore(breakPlan());
-    store.setAvailability('a1', '2026-08-10|1-9', 'yes');
-    expect(store.copyAvailability('a1', '2026-08-10', '2026-08-10')).toBe(0);
+  hoursByAssistantInWeek(week: WeekKey): Record<string, number> {
+    const result: Record<string, number> = {};
+    for (const a of this._state().assistants) result[a.id] = 0;
+    for (const slot of this.slotsOfWeek(week)) {
+      for (const id of this._state().assignments[slot.key] ?? []) {
+        if (id in result) result[id] = (result[id] ?? 0) + 1;
+      }
+    }
+    return result;
+  }
+
+  // --- Verfügbarkeit --------------------------------------------------------
+
+  getAvailability(assistantId: string, key: SlotKeyLike): Availability | undefined {
+    return this._state().availability[assistantId]?.[key];
+  }
+
+  answeredCount(assistantId: string, week: WeekKey): number {
+    return this.slotsOfWeek(week).filter((s) => this.getAvailability(assistantId, s.key)).length;
+  }
+
+  /**
+   * Zahl der Hilfskräfte, die für einen Slot „Ja" oder „Wenn es sein muss"
+   * angegeben haben. Urlaub schlägt eine Antwort — wer an diesem Tag Urlaub
+   * hat, zählt nicht mit, unabhängig davon, was in der Matrix steht.
+   */
+  availableCount(key: SlotKeyLike, date: IsoDate | null): number {
+    let count = 0;
+    for (const assistant of this._state().assistants) {
+      if (date && this.isOnVacation(assistant.id, date)) continue;
+      const answer = this.getAvailability(assistant.id, key);
+      if (answer === 'yes' || answer === 'ifNeeded') count++;
+    }
+    return count;
+  }
+
+  setAvailability(assistantId: string, key: SlotKeyLike, value: Availability | undefined): void {
+    this._state.update((s) => {
+      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
+      if (value === undefined) delete forAssistant[key];
+      else forAssistant[key] = value;
+      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
+    });
+  }
+
+  /** Klick auf eine Zelle: unbeantwortet → Ja → Wenn es sein muss → Nein → unbeantwortet. */
+  cycleAvailability(assistantId: string, key: SlotKeyLike): void {
+    const current = this.getAvailability(assistantId, key);
+    const next: Record<string, Availability | undefined> = {
+      undefined: 'yes',
+      yes: 'ifNeeded',
+      ifNeeded: 'no',
+      no: undefined,
+    };
+    this.setAvailability(assistantId, key, next[String(current)]);
+  }
+
+  setAvailabilityForSlots(
+    assistantId: string,
+    keys: SlotKeyLike[],
+    value: Availability | undefined,
+  ): void {
+    this._state.update((s) => {
+      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
+      for (const key of keys) {
+        if (value === undefined) delete forAssistant[key];
+        else forAssistant[key] = value;
+      }
+      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
+    });
+  }
+
+  /** Überträgt die Verfügbarkeiten einer Woche auf eine andere. */
+  copyAvailability(assistantId: string, source: WeekKey, target: WeekKey): number {
+    if (source === target) return 0;
+    let copied = 0;
+    this._state.update((s) => {
+      const forAssistant = { ...(s.availability[assistantId] ?? {}) };
+      for (const slot of this.slotsOfWeek(target)) {
+        const value = forAssistant[`${source}|${slot.weekdayKey}`];
+        if (!value) continue;
+        forAssistant[slot.key] = value;
+        copied++;
+      }
+      return { ...s, availability: { ...s.availability, [assistantId]: forAssistant } };
+    });
+    return copied;
+  }
+
+  // --- Warnungen ------------------------------------------------------------
+
+  readonly warnings = computed<ScheduleWarning[]>(() => {
+    const state = this._state();
+    const result: ScheduleWarning[] = [];
+    const nameOf = (id: string) =>
+      state.assistants.find((a) => a.id === id)?.name ?? 'Unbekannt';
+
+    for (const slot of this.slots()) {
+      const label = slot.date
+        ? `${WEEKDAY_SHORT[slot.weekday]} ${formatDate(slot.date)} ${formatHour(slot.hour)}`
+        : `${WEEKDAY_SHORT[slot.weekday]} ${formatHour(slot.hour)}`;
+      const assigned = state.assignments[slot.key] ?? [];
+
+      if (!assigned.length) {
+        result.push({
+          level: 'warn',
+          slotKey: slot.key,
+          week: slot.week,
+          message: `${label}: niemand eingeteilt.`,
+        });
+        continue;
+      }
+
+      let onlyIfNeeded = true;
+      for (const id of assigned) {
+        if (this.isBlockedFor(id, slot)) {
+          // Kann nur durch nachträglich eingetragenen Urlaub entstehen, da
+          // die Zuweisungswege eine Sperre selbst schon verhindern.
+          result.push({
+            level: 'error',
+            slotKey: slot.key,
+            week: slot.week,
+            assistantId: id,
+            message: `${label}: ${nameOf(id)} hat hier Urlaub eingetragen.`,
+          });
+          onlyIfNeeded = false;
+          continue;
+        }
+        const answer = this.getAvailability(id, slot.key);
+        if (answer === 'no') {
+          result.push({
+            level: 'error',
+            slotKey: slot.key,
+            week: slot.week,
+            assistantId: id,
+            message: `${label}: ${nameOf(id)} hat hier „Nein" angegeben.`,
+          });
+        } else if (answer === undefined) {
+          result.push({
+            level: 'error',
+            slotKey: slot.key,
+            week: slot.week,
+            assistantId: id,
+            message: `${label}: von ${nameOf(id)} liegt für diese Stunde keine Antwort vor.`,
+          });
+        }
+        if (answer === 'yes') onlyIfNeeded = false;
+      }
+
+      if (onlyIfNeeded && assigned.length) {
+        result.push({
+          level: 'info',
+          slotKey: slot.key,
+          week: slot.week,
+          message: `${label}: nur mit „Wenn es sein muss" besetzt.`,
+        });
+      }
+    }
+
+    const valid = new Set(this.slots().map((s) => s.key));
+    const orphans = Object.entries(state.assignments).filter(
+      ([key, ids]) => ids.length && !valid.has(key),
+    );
+    if (orphans.length) {
+      result.push({
+        level: 'warn',
+        message: `${orphans.length} Zuweisung(en) liegen außerhalb der aktuellen Wochenpläne.`,
+      });
+    }
+
+    return result;
   });
 
-  it('betrifft beim Übertragen nur die angegebene Hilfskraft', () => {
-    const store = makeStore(breakPlan());
-    store.setAvailability('a1', '2026-08-10|1-9', 'yes');
-    store.copyAvailability('a1', '2026-08-10', '2026-08-17');
-    expect(store.getAvailability('a2', '2026-08-17|1-9')).toBeUndefined();
-  });
-});
-
-describe('Einteilung', () => {
-  it('trennt die Wochen im Ferienmodus', () => {
-    const store = makeStore(breakPlan());
-    store.toggleAssignment('2026-08-10|1-9', 'a1');
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual(['a1']);
-    expect(store.assignedTo('2026-08-17|1-9')).toEqual([]);
+  readonly warningsBySlot = computed<Map<string, ScheduleWarning[]>>(() => {
+    const map = new Map<string, ScheduleWarning[]>();
+    for (const warning of this.warnings()) {
+      if (!warning.slotKey) continue;
+      const list = map.get(warning.slotKey) ?? [];
+      list.push(warning);
+      map.set(warning.slotKey, list);
+    }
+    return map;
   });
 
-  it('erlaubt mehrere Hilfskräfte im selben Slot', () => {
-    const store = makeStore(semester());
-    const key = slotKey('semester', 1, 9);
-    store.toggleAssignment(key, 'a1');
-    store.toggleAssignment(key, 'a2');
-    expect(store.assignedTo(key)).toEqual(['a1', 'a2']);
-    store.toggleAssignment(key, 'a1');
-    expect(store.assignedTo(key)).toEqual(['a2']);
+  warningsOfWeek(week: WeekKey): ScheduleWarning[] {
+    return this.warnings().filter((w) => w.week === week);
+  }
+
+  readonly hasOrphanAssignments = computed(() => {
+    const valid = new Set(this.slots().map((s) => s.key));
+    return Object.entries(this._state().assignments).some(
+      ([key, ids]) => ids.length && !valid.has(key),
+    );
   });
 
-  it('zählt Stunden je Woche getrennt vom Gesamtwert', () => {
-    const store = makeStore(
-      breakPlan({
-        assignments: {
-          '2026-08-10|1-9': ['a1'],
-          '2026-08-10|1-10': ['a1'],
-          '2026-08-17|1-9': ['a1'],
+  constructor() {
+    effect(() => {
+      const snapshot = this._state();
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+      } catch {
+        // Speicher voll oder blockiert: Daten bleiben in der Sitzung erhalten.
+      }
+    });
+  }
+
+  // --- Stammdaten -----------------------------------------------------------
+
+  setTitle(title: string): void {
+    this._state.update((s) => ({ ...s, title }));
+  }
+
+  /**
+   * Wechselt den Plantyp. Verfügbarkeiten und Einteilung bleiben gespeichert,
+   * sind aber nur im jeweils passenden Modus sichtbar — der Wechsel ist damit
+   * verlustfrei umkehrbar.
+   */
+  setMode(mode: PlanMode): void {
+    this._state.update((s) => ({ ...s, mode }));
+  }
+
+  setPeriod(patch: Partial<{ start: IsoDate; end: IsoDate }>): void {
+    this._state.update((s) => {
+      const period = { ...s.period, ...patch };
+      if (!isValidIso(period.start) || !isValidIso(period.end)) return s;
+      if (period.end < period.start) period.end = period.start;
+      return { ...s, period };
+    });
+  }
+
+  setOpeningHours(weekday: Weekday, patch: Partial<OpeningHours>): void {
+    this._state.update((s) => ({
+      ...s,
+      openingHours: s.openingHours.map((o) => {
+        if (o.weekday !== weekday) return o;
+        const next = { ...o, ...patch };
+        next.start = clampHour(next.start);
+        next.end = clampHour(next.end);
+        if (next.end <= next.start) next.end = next.start + 1;
+        return next;
+      }),
+    }));
+  }
+
+  applyToAllWeekdays(source: Weekday): void {
+    const template = this._state().openingHours.find((o) => o.weekday === source);
+    if (!template) return;
+    this._state.update((s) => ({
+      ...s,
+      openingHours: s.openingHours.map((o) => ({
+        ...o,
+        open: template.open,
+        start: template.start,
+        end: template.end,
+      })),
+    }));
+  }
+
+  addAssistant(name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    this._state.update((s) => ({
+      ...s,
+      assistants: [
+        ...s.assistants,
+        {
+          id: createId(),
+          name: trimmed,
+          color: PALETTE[s.assistants.length % PALETTE.length]!,
         },
-      }),
-    );
-    expect(store.hoursByAssistant()['a1']).toBe(3);
-    expect(store.hoursByAssistantInWeek('2026-08-10')['a1']).toBe(2);
-    expect(store.hoursByAssistantInWeek('2026-08-17')['a1']).toBe(1);
-  });
+      ],
+    }));
+  }
 
-  it('überträgt die Einteilung einer Woche auf eine andere', () => {
-    const store = makeStore(
-      breakPlan({ assignments: { '2026-08-10|1-9': ['a1'], '2026-08-10|2-9': ['a2'] } }),
-    );
-    expect(store.copyWeek('2026-08-10', '2026-08-17')).toBe(2);
-    expect(store.assignedTo('2026-08-17|1-9')).toEqual(['a1']);
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual(['a1']);
-  });
+  renameAssistant(id: string, name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    this._state.update((s) => ({
+      ...s,
+      assistants: s.assistants.map((a) => (a.id === id ? { ...a, name: trimmed } : a)),
+    }));
+  }
 
-  it('überträgt nur auf Stellen, die es in der Zielwoche gibt', () => {
-    // Die zweite Woche ist auf Montag und Dienstag beschnitten.
-    const store = makeStore(
-      breakPlan({
-        period: { start: '2026-08-10', end: '2026-08-18' },
-        assignments: { '2026-08-10|1-9': ['a1'], '2026-08-10|4-9': ['a2'] },
-      }),
-    );
-    expect(store.copyWeek('2026-08-10', '2026-08-17')).toBe(1);
-    expect(store.assignedTo('2026-08-17|1-9')).toEqual(['a1']);
-    expect(store.assignedTo('2026-08-17|4-9')).toEqual([]);
-  });
-
-  it('leert nur die angegebene Woche', () => {
-    const store = makeStore(
-      breakPlan({ assignments: { '2026-08-10|1-9': ['a1'], '2026-08-17|1-9': ['a2'] } }),
-    );
-    store.clearWeek('2026-08-10');
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
-    expect(store.assignedTo('2026-08-17|1-9')).toEqual(['a2']);
-  });
-});
-
-describe('Urlaub', () => {
-  it('blockiert nur im Ferienplan, nicht im Semesterplan', () => {
-    const withDates = makeStore(breakPlan());
-    withDates.addVacation('a1', '2026-08-10', '2026-08-10');
-    expect(withDates.isOnVacation('a1', '2026-08-10')).toBe(true);
-
-    // Der Semesterplan hat keine Kalendertage — die Sperre kann dort nicht
-    // greifen, deshalb wird toggleAssignment nie verweigert.
-    const withoutDates = makeStore(semester());
-    withoutDates.addVacation('a1', '2026-08-10', '2026-08-10');
-    withoutDates.toggleAssignment('semester|1-9', 'a1');
-    expect(withoutDates.assignedTo('semester|1-9')).toEqual(['a1']);
-  });
-
-  it('verhindert eine einzelne Zuweisung am Urlaubstag', () => {
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-10', '2026-08-10');
-    store.toggleAssignment('2026-08-10|1-9', 'a1');
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
-  });
-
-  it('erlaubt Zuweisungen an anderen Tagen unverändert', () => {
-    // Wochenschlüssel ist immer der Montag; Dienstag der ersten Woche liegt
-    // also unter '2026-08-10', nicht unter seinem eigenen Datum.
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-10', '2026-08-10');
-    store.toggleAssignment('2026-08-10|2-9', 'a1');
-    expect(store.assignedTo('2026-08-10|2-9')).toEqual(['a1']);
-  });
-
-  it('lässt das Entfernen einer Zuweisung trotz Urlaub zu', () => {
-    // Urlaub kann rückwirkend eingetragen worden sein; entfernen muss
-    // trotzdem möglich bleiben, nur das Hinzufügen wird gesperrt.
-    const store = makeStore(breakPlan({ assignments: { '2026-08-10|1-9': ['a1'] } }));
-    store.addVacation('a1', '2026-08-10', '2026-08-10');
-    // addVacation räumt selbst schon auf — hier zusätzlich prüfen, dass ein
-    // erneuter Toggle-Aufruf auf eine (hypothetisch) verbliebene Zuweisung
-    // nicht blockiert würde.
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
-  });
-
-  it('lässt einen Block nur an den nicht gesperrten Stunden auffüllen', () => {
-    // Ein Block liegt innerhalb eines Tages, Urlaub gilt tagesweise — die
-    // Sperre betrifft hier den ganzen Block gleichermaßen.
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-10', '2026-08-10');
-    store.toggleAssignmentForSlots(['2026-08-10|1-9', '2026-08-10|1-10'], 'a1');
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
-    expect(store.assignedTo('2026-08-10|1-10')).toEqual([]);
-  });
-
-  it('blockiert das Zuweisen per Ziehen aus der Liste', () => {
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-10', '2026-08-10');
-    store.assignToSlots(['2026-08-10|1-9'], 'a1');
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual([]);
-  });
-
-  it('verweigert eine Verschiebung ganz, wenn nur ein Zielslot gesperrt ist', () => {
-    // Alles-oder-nichts: ein teilweise verschobener Block würde sonst
-    // unbemerkt Stunden verlieren.
-    const store = makeStore(
-      breakPlan({ assignments: { '2026-08-10|1-9': ['a1'], '2026-08-10|1-10': ['a1'] } }),
-    );
-    store.addVacation('a1', '2026-08-11', '2026-08-11');
-    store.moveAssignment(
-      ['2026-08-10|1-9', '2026-08-10|1-10'],
-      ['2026-08-10|2-9', '2026-08-10|2-10'],
-      'a1',
-    );
-    // Die Verschiebung wurde verweigert — Quelle bleibt unverändert.
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual(['a1']);
-    expect(store.assignedTo('2026-08-10|2-9')).toEqual([]);
-  });
-
-  it('entfernt beim Eintragen rückwirkend bereits geplante Stunden im Zeitraum', () => {
-    const store = makeStore(
-      breakPlan({
-        assignments: {
-          '2026-08-10|1-9': ['a1', 'a2'],
-          '2026-08-10|2-9': ['a1'],
-          '2026-08-17|1-9': ['a1'],
-        },
-      }),
-    );
-    store.addVacation('a1', '2026-08-10', '2026-08-12');
-    // Beide betroffenen Termine sind bereinigt, andere Hilfskräfte bleiben.
-    expect(store.assignedTo('2026-08-10|1-9')).toEqual(['a2']);
-    expect(store.assignedTo('2026-08-10|2-9')).toEqual([]);
-    // Außerhalb des Urlaubszeitraums bleibt die Zuweisung bestehen.
-    expect(store.assignedTo('2026-08-17|1-9')).toEqual(['a1']);
-  });
-
-  it('meldet eine trotzdem bestehende Zuweisung als Fehler', () => {
-    // Kann nur durch einen importierten Stand entstehen, da die Store-Wege
-    // selbst keine solche Zuweisung zulassen.
-    const store = makeStore(
-      breakPlan({
-        assignments: { '2026-08-10|1-9': ['a1'] },
-        vacations: [{ id: 'v1', assistantId: 'a1', from: '2026-08-10', to: '2026-08-10' }],
-      }),
-    );
-    const forSlot = store.warningsBySlot().get('2026-08-10|1-9') ?? [];
-    expect(forSlot.some((w) => w.level === 'error' && w.message.includes('Urlaub'))).toBe(true);
-  });
-
-  it('räumt Urlaub beim Entfernen der Hilfskraft mit auf', () => {
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-10', '2026-08-10');
-    store.removeAssistant('a1');
-    expect(store.vacationsOf('a1')).toEqual([]);
-  });
-
-  it('lässt sich wieder entfernen', () => {
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-10', '2026-08-10');
-    const id = store.vacationsOf('a1')[0]!.id;
-    store.removeVacation(id);
-    expect(store.isOnVacation('a1', '2026-08-10')).toBe(false);
-  });
-
-  it('erlaubt einen tagesweisen Urlaub (from === to)', () => {
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-12', '2026-08-12');
-    expect(store.isOnVacation('a1', '2026-08-12')).toBe(true);
-    expect(store.isOnVacation('a1', '2026-08-11')).toBe(false);
-    expect(store.isOnVacation('a1', '2026-08-13')).toBe(false);
-  });
-
-  it('dreht vertauschte Datumsgrenzen', () => {
-    const store = makeStore(breakPlan());
-    store.addVacation('a1', '2026-08-12', '2026-08-10');
-    expect(store.vacationsOf('a1')[0]).toMatchObject({ from: '2026-08-10', to: '2026-08-12' });
-  });
-});
-
-describe('Einsatzort (Theke / Büro)', () => {
-  it('ist standardmäßig Theke, also nicht als Büro markiert', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-  });
-
-  it('schaltet zwischen Theke und Büro um', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.toggleTask('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(true);
-    store.toggleTask('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-  });
-
-  it('lässt sich ohne bestehende Zuweisung nicht umschalten', () => {
-    const store = makeStore(semester());
-    store.toggleTask('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-  });
-
-  it('darf keine Vorbelegung hinterlassen, die bei späterer Zuweisung auftaucht', () => {
-    // Der No-op bei fehlender Zuweisung muss wirklich nichts schreiben —
-    // sonst könnte ein Toggle-Versuch ins Leere unbemerkt eine Markierung
-    // hinterlegen, die erst bei der nächsten Zuweisung sichtbar würde.
-    const store = makeStore(semester());
-    store.toggleTask('semester|1-9', 'a1');
-    store.toggleAssignment('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-  });
-
-  it('betrifft nur die eine Person im Slot, nicht andere', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1', 'a2'] } }));
-    store.toggleTask('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(true);
-    expect(store.isOfficeWork('semester|1-9', 'a2')).toBe(false);
-  });
-
-  it('verschwindet automatisch, sobald die Zuweisung entfernt wird', () => {
-    // Zentrale Garantie: isOfficeWork prüft gegen die aktuelle Zuweisung,
-    // nicht nur gegen den rohen Zustand — ohne dass jede der verschiedenen
-    // Entfernungsstellen die Markierung einzeln aufräumen müsste.
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.toggleTask('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(true);
-    store.toggleAssignment('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-  });
-
-  it('verschwindet auch beim Verschieben aus der Quelle', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.toggleTask('semester|1-9', 'a1');
-    store.moveAssignment('semester|1-9', ['semester|2-9'], 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-    // Am neuen Ort gilt wieder der Normalfall Theke, nicht automatisch Büro.
-    expect(store.isOfficeWork('semester|2-9', 'a1')).toBe(false);
-  });
-
-  it('kehrt beim Rückgängigmachen einer Entfernung nicht von selbst zurück', () => {
-    // Wird dieselbe Person später erneut demselben Slot zugewiesen, startet
-    // sie wieder als Theke — die Markierung lebt nur, solange die konkrete
-    // Zuweisung ununterbrochen besteht.
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.toggleTask('semester|1-9', 'a1');
-    store.toggleAssignment('semester|1-9', 'a1'); // entfernen
-    store.toggleAssignment('semester|1-9', 'a1'); // erneut zuweisen
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-  });
-
-  it('räumt beim Entfernen der Hilfskraft mit auf', () => {
-    // STAFF enthält zwei Personen (a1, a2) — nach dem Entfernen bleibt a2.
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.toggleTask('semester|1-9', 'a1');
-    store.removeAssistant('a1');
-    expect(store.assistants().map((a) => a.id)).toEqual(['a2']);
-  });
-
-  it('verschwindet beim Leeren einer Woche und lebt bei Neuzuweisung nicht wieder auf', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.toggleTask('semester|1-9', 'a1');
-    store.clearAssignments();
-    store.toggleAssignment('semester|1-9', 'a1');
-    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
-  });
-});
-
-describe('Blockzuweisung', () => {
-  const BLOCK = ['semester|1-9', 'semester|1-10', 'semester|1-11'];
-
-  it('meldet den Deckungsgrad über mehrere Slots', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('some');
-    expect(store.assignmentCoverage(BLOCK, 'a2')).toBe('none');
-    expect(store.assignmentCoverage(['semester|1-9'], 'a1')).toBe('all');
-  });
-
-  it('teilt eine Hilfskraft dem ganzen Block zu', () => {
-    const store = makeStore(semester());
-    store.toggleAssignmentForSlots(BLOCK, 'a1');
-    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('all');
-  });
-
-  it('füllt einen teilweise belegten Block auf, statt ihn zu leeren', () => {
-    // Beim Nachbessern einer Schicht ist das die erwartete Richtung.
-    const store = makeStore(semester({ assignments: { 'semester|1-10': ['a1'] } }));
-    store.toggleAssignmentForSlots(BLOCK, 'a1');
-    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('all');
-  });
-
-  it('entfernt die Hilfskraft, wenn sie den Block vollständig belegt', () => {
-    const store = makeStore(semester());
-    store.toggleAssignmentForSlots(BLOCK, 'a1');
-    store.toggleAssignmentForSlots(BLOCK, 'a1');
-    expect(store.assignmentCoverage(BLOCK, 'a1')).toBe('none');
-  });
-
-  it('lässt andere Hilfskräfte im Block unberührt', () => {
-    // Überlappende Schichten sind ausdrücklich erlaubt.
-    const store = makeStore(semester({ assignments: { 'semester|1-10': ['a2'] } }));
-    store.toggleAssignmentForSlots(BLOCK, 'a1');
-    expect(store.assignedTo('semester|1-10')).toEqual(['a2', 'a1']);
-    store.toggleAssignmentForSlots(BLOCK, 'a1');
-    expect(store.assignedTo('semester|1-10')).toEqual(['a2']);
-  });
-
-  it('verkraftet einen leeren Block', () => {
-    const store = makeStore(semester());
-    store.toggleAssignmentForSlots([], 'a1');
-    expect(store.assignmentCoverage([], 'a1')).toBe('none');
-  });
-});
-
-describe('Zuweisen und Verschieben (Drag and Drop)', () => {
-  it('fügt eine Hilfskraft hinzu, ohne andere zu verdrängen', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a2'] } }));
-    store.assignToSlots(['semester|1-9'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a2', 'a1']);
-  });
-
-  it('fügt niemanden doppelt ein', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.assignToSlots(['semester|1-9'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
-  });
-
-  it('verschiebt eine Hilfskraft von einer Stunde in eine andere', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.moveAssignment('semester|1-9', ['semester|2-9'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual([]);
-    expect(store.assignedTo('semester|2-9')).toEqual(['a1']);
-  });
-
-  it('lässt beim Verschieben andere Hilfskräfte in der Quelle stehen', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1', 'a2'] } }));
-    store.moveAssignment('semester|1-9', ['semester|2-9'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a2']);
-  });
-
-  it('verschiebt auf einen ganzen Block', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.moveAssignment('semester|1-9', ['semester|2-9', 'semester|2-10'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual([]);
-    expect(store.assignedTo('semester|2-9')).toEqual(['a1']);
-    expect(store.assignedTo('semester|2-10')).toEqual(['a1']);
-  });
-
-  it('verliert niemanden, wenn Quelle im Ziel enthalten ist', () => {
-    // Beim Ablegen auf einem Block, der die Quellstunde einschließt, darf die
-    // Person dort nicht entfernt werden.
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.moveAssignment('semester|1-9', ['semester|1-9', 'semester|1-10'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
-    expect(store.assignedTo('semester|1-10')).toEqual(['a1']);
-  });
-
-  it('verschiebt eine ganze Schicht in einem Schritt', () => {
-    const store = makeStore(
-      semester({
-        assignments: {
-          'semester|1-9': ['a1'],
-          'semester|1-10': ['a1'],
-          'semester|1-11': ['a1'],
-        },
-      }),
-    );
-    store.moveAssignment(
-      ['semester|1-9', 'semester|1-10', 'semester|1-11'],
-      ['semester|2-9', 'semester|2-10', 'semester|2-11'],
-      'a1',
-    );
-    expect(store.assignedTo('semester|1-9')).toEqual([]);
-    expect(store.assignedTo('semester|1-11')).toEqual([]);
-    expect(store.assignedTo('semester|2-10')).toEqual(['a1']);
-  });
-
-  it('verliert bei überlappender Verschiebung keine Stunde', () => {
-    // Schicht 9–11 wird um eine Stunde nach hinten gezogen: 10 und 11 sind
-    // in Quelle und Ziel enthalten und dürfen nicht herausfallen.
-    const store = makeStore(
-      semester({
-        assignments: {
-          'semester|1-9': ['a1'],
-          'semester|1-10': ['a1'],
-          'semester|1-11': ['a1'],
-        },
-      }),
-    );
-    store.moveAssignment(
-      ['semester|1-9', 'semester|1-10', 'semester|1-11'],
-      ['semester|1-10', 'semester|1-11'],
-      'a1',
-    );
-    expect(store.assignedTo('semester|1-9')).toEqual([]);
-    expect(store.assignedTo('semester|1-10')).toEqual(['a1']);
-    expect(store.assignedTo('semester|1-11')).toEqual(['a1']);
-  });
-
-  it('lässt beim Verschieben einer Schicht andere Personen unberührt', () => {
-    const store = makeStore(
-      semester({
-        assignments: { 'semester|1-9': ['a1', 'a2'], 'semester|1-10': ['a1'] },
-      }),
-    );
-    store.moveAssignment(['semester|1-9', 'semester|1-10'], ['semester|3-9', 'semester|3-10'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a2']);
-    expect(store.assignedTo('semester|3-9')).toEqual(['a1']);
-  });
-
-  it('macht eine Verschiebung durch den umgekehrten Aufruf rückgängig', () => {
-    // So funktioniert das Rückgängig in der Oberfläche: moveAssignment(to, from).
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.moveAssignment(['semester|1-9'], ['semester|3-9'], 'a1');
-    store.moveAssignment(['semester|3-9'], ['semester|1-9'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
-    expect(store.assignedTo('semester|3-9')).toEqual([]);
-  });
-
-  it('macht auch eine überlappende Blockverschiebung sauber rückgängig', () => {
-    const store = makeStore(
-      semester({
-        assignments: { 'semester|1-9': ['a1'], 'semester|1-10': ['a1'], 'semester|1-11': ['a1'] },
-      }),
-    );
-    const from = ['semester|1-9', 'semester|1-10', 'semester|1-11'];
-    const to = ['semester|1-10', 'semester|1-11', 'semester|1-12'];
-    store.moveAssignment(from, to, 'a1');
-    store.moveAssignment(to, from, 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
-    expect(store.assignedTo('semester|1-10')).toEqual(['a1']);
-    expect(store.assignedTo('semester|1-11')).toEqual(['a1']);
-    expect(store.assignedTo('semester|1-12')).toEqual([]);
-  });
-
-  it('rührt beim Rückgängigmachen andere Personen nicht an', () => {
-    const store = makeStore(
-      semester({ assignments: { 'semester|1-9': ['a1', 'a2'] } }),
-    );
-    store.moveAssignment(['semester|1-9'], ['semester|2-9'], 'a1');
-    store.moveAssignment(['semester|2-9'], ['semester|1-9'], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a2', 'a1']);
-  });
-
-  it('verkraftet ein leeres Ziel', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.moveAssignment('semester|1-9', [], 'a1');
-    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
-  });
-});
-
-describe('Moduswechsel', () => {
-  it('behält die Daten beider Modi, sodass der Wechsel umkehrbar ist', () => {
-    const store = makeStore(
-      semester({
-        availability: { a1: { 'semester|1-9': 'yes' } },
-        assignments: { 'semester|1-9': ['a1'] },
-      }),
-    );
-    store.setMode('break');
-    // Im Ferienmodus ist die Musterwoche nicht sichtbar ...
-    expect(store.weekPlans().some((p) => p.key === 'semester')).toBe(false);
-    store.setMode('semester');
-    // ... aber nach dem Zurückwechseln unverändert vorhanden.
-    expect(store.assignedTo('semester|1-9')).toEqual(['a1']);
-    expect(store.getAvailability('a1', 'semester|1-9')).toBe('yes');
-  });
-
-  it('meldet Zuweisungen, die zu keinem aktuellen Wochenplan gehören', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    store.setMode('break');
-    expect(store.hasOrphanAssignments()).toBe(true);
-    store.pruneOrphanAssignments();
-    expect(store.hasOrphanAssignments()).toBe(false);
-  });
-});
-
-describe('Warnungen', () => {
-  it('meldet unbesetzte Stunden', () => {
-    const store = makeStore(semester());
-    expect(store.warnings()).toHaveLength(12);
-    expect(store.warnings().every((w) => w.level === 'warn')).toBe(true);
-  });
-
-  it('meldet eine Einteilung gegen ein Nein als Fehler', () => {
-    const store = makeStore(
-      semester({
-        availability: { a1: { 'semester|1-9': 'no' } },
-        assignments: { 'semester|1-9': ['a1'] },
-      }),
-    );
-    const forSlot = store.warningsBySlot().get('semester|1-9') ?? [];
-    expect(forSlot.some((w) => w.level === 'error')).toBe(true);
-  });
-
-  it('meldet fehlende Antworten als Fehler', () => {
-    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
-    const forSlot = store.warningsBySlot().get('semester|1-9') ?? [];
-    expect(forSlot.some((w) => w.level === 'error')).toBe(true);
-  });
-
-  it('meldet eine nur notfalls besetzte Stunde als Hinweis', () => {
-    const store = makeStore(
-      semester({
-        availability: { a1: { 'semester|1-9': 'ifNeeded' } },
-        assignments: { 'semester|1-9': ['a1'] },
-      }),
-    );
-    const forSlot = store.warningsBySlot().get('semester|1-9') ?? [];
-    expect(forSlot.some((w) => w.level === 'info')).toBe(true);
-  });
-
-  it('schweigt, wenn ein Ja-Kandidat dabei ist', () => {
-    const store = makeStore(
-      semester({
-        availability: { a1: { 'semester|1-9': 'ifNeeded' }, a2: { 'semester|1-9': 'yes' } },
-        assignments: { 'semester|1-9': ['a1', 'a2'] },
-      }),
-    );
-    expect(store.warningsBySlot().get('semester|1-9')).toBeUndefined();
-  });
-
-  it('ordnet Warnungen ihrer Woche zu', () => {
-    const store = makeStore(breakPlan());
-    expect(store.warningsOfWeek('2026-08-10')).toHaveLength(12);
-    expect(store.warningsOfWeek('2026-08-17')).toHaveLength(12);
-  });
-});
-
-describe('Migration älterer Stände', () => {
-  it('macht aus einem v1-Stand einen Semesterplan', () => {
-    const state = normalizeState({
-      version: 1,
-      title: 'Alter Plan',
-      openingHours: OPENING,
-      assistants: STAFF,
-      availability: { a1: { '1-9': 'yes' } },
-      assignments: { '1-9': ['a1'], '3-10': ['a1', 'a2'] },
+  removeAssistant(id: string): void {
+    this._state.update((s) => {
+      const availability = { ...s.availability };
+      delete availability[id];
+      const assignments: Record<string, string[]> = {};
+      for (const [key, ids] of Object.entries(s.assignments)) {
+        const kept = ids.filter((x) => x !== id);
+        if (kept.length) assignments[key] = kept;
+      }
+      const officeWork: Record<string, string[]> = {};
+      for (const [key, ids] of Object.entries(s.officeWork)) {
+        const kept = ids.filter((x) => x !== id);
+        if (kept.length) officeWork[key] = kept;
+      }
+      return {
+        ...s,
+        assistants: s.assistants.filter((a) => a.id !== id),
+        vacations: s.vacations.filter((v) => v.assistantId !== id),
+        availability,
+        assignments,
+        officeWork,
+      };
     });
-    expect(state.version).toBe(6);
-    expect(state.mode).toBe('semester');
-    expect(state.title).toBe('Alter Plan');
-    expect(state.assignments['semester|1-9']).toEqual(['a1']);
-    expect(state.assignments['semester|3-10']).toEqual(['a1', 'a2']);
-    expect(state.availability['a1']?.['semester|1-9']).toBe('yes');
-  });
+  }
 
-  it('macht aus einem datumsbasierten Stand einen Ferienplan', () => {
-    const state = normalizeState({
-      version: 3,
-      period: PERIOD,
-      openingHours: OPENING,
-      assistants: STAFF,
-      assignments: { '2026-08-10T09': ['a1'], '2026-08-17T10': ['a2'] },
+  // --- Urlaub -----------------------------------------------------------
+
+  /**
+   * Trägt Urlaub ein und entfernt dafür rückwirkend jede Zuweisung in diesem
+   * Zeitraum — sonst bliebe eine bereits geplante Schicht bestehen und würde
+   * nur noch als Warnung auffallen, statt gelöst zu sein.
+   */
+  addVacation(assistantId: string, from: IsoDate, to: IsoDate, note = ''): void {
+    if (!isValidIso(from) || !isValidIso(to)) return;
+    const range = { from: from <= to ? from : to, to: from <= to ? to : from };
+    this._state.update((s) => {
+      const vacations = [
+        ...s.vacations,
+        { id: createId(), assistantId, ...range, note: note.trim() || undefined },
+      ];
+      vacations.sort((a, b) => a.from.localeCompare(b.from));
+
+      const assignments = { ...s.assignments };
+      const officeWork = { ...s.officeWork };
+      for (const slot of this.slots()) {
+        if (!slot.date || !isWithin(slot.date, range.from, range.to)) continue;
+        const current = assignments[slot.key];
+        if (!current?.includes(assistantId)) continue;
+        const rest = current.filter((id) => id !== assistantId);
+        if (rest.length) assignments[slot.key] = rest;
+        else delete assignments[slot.key];
+        this.clearOfficeWork(officeWork, slot.key, assistantId);
+      }
+
+      return { ...s, vacations, assignments, officeWork };
     });
-    expect(state.mode).toBe('break');
-    expect(state.assignments['2026-08-10|1-9']).toEqual(['a1']);
-    expect(state.assignments['2026-08-17|1-10']).toEqual(['a2']);
-  });
+  }
 
-  it('übernimmt wochenweise Angaben aus v3', () => {
-    const state = normalizeState({
-      version: 3,
-      period: PERIOD,
-      assistants: STAFF,
-      weeklyAvailability: { a1: { '2026-08-10': { '1-9': 'yes' } } },
+  removeVacation(id: string): void {
+    this._state.update((s) => ({ ...s, vacations: s.vacations.filter((v) => v.id !== id) }));
+  }
+
+  // --- Einteilung -----------------------------------------------------------
+
+  assignedTo(key: SlotKeyLike): string[] {
+    return this._state().assignments[key] ?? [];
+  }
+
+  isAssigned(key: SlotKeyLike, assistantId: string): boolean {
+    return this.assignedTo(key).includes(assistantId);
+  }
+
+  // --- Einsatzort (Theke / Büro) --------------------------------------------
+  // Theke ist der Normalfall; nur die Abweichung „Büro" wird gespeichert.
+
+  /**
+   * Ist die Person an diesem Slot im Büro statt an der Theke? Geprüft wird
+   * bewusst gegen die aktuelle Zuweisung, nicht nur gegen den rohen
+   * Zustand — wird eine Zuweisung entfernt (Klick, Verschieben, Urlaub),
+   * verschwindet die Ortsmarkierung damit automatisch mit, ohne dass jede
+   * der verschiedenen Entfernungsstellen sie einzeln aufräumen müsste.
+   */
+  isOfficeWork(key: SlotKeyLike, assistantId: string): boolean {
+    if (!this.isAssigned(key, assistantId)) return false;
+    return this._state().officeWork[key]?.includes(assistantId) ?? false;
+  }
+
+  /** Wechselt zwischen Theke und Büro. Ohne bestehende Zuweisung ein No-op. */
+  toggleTask(key: SlotKeyLike, assistantId: string): void {
+    if (!this.isAssigned(key, assistantId)) return;
+    this._state.update((s) => {
+      const current = s.officeWork[key] ?? [];
+      const officeWork = { ...s.officeWork };
+      if (current.includes(assistantId)) {
+        const rest = current.filter((id) => id !== assistantId);
+        if (rest.length) officeWork[key] = rest;
+        else delete officeWork[key];
+      } else {
+        officeWork[key] = [...current, assistantId];
+      }
+      return { ...s, officeWork };
     });
-    expect(state.availability['a1']?.['2026-08-10|1-9']).toBe('yes');
-  });
+  }
 
-  it('lässt einen v4-Stand unverändert', () => {
-    const state = normalizeState({
-      version: 4,
-      mode: 'break',
-      assistants: STAFF,
-      assignments: { '2026-08-10|1-9': ['a1'] },
+  /** Slot zu einem Schlüssel, falls er im aktuellen Plan existiert. */
+  private slotByKey(key: SlotKeyLike): Slot | undefined {
+    return this.slots().find((s) => s.key === key);
+  }
+
+  /**
+   * Filtert Urlaubstage aus einer Liste von Zielslots heraus. Der Semesterplan
+   * hat keine Kalendertage, dort greift die Sperre folglich nie.
+   */
+  private withoutVacation(keys: SlotKeyLike[], assistantId: string): SlotKeyLike[] {
+    return keys.filter((key) => {
+      const slot = this.slotByKey(key);
+      return !slot || !this.isBlockedFor(assistantId, slot);
     });
-    expect(state.assignments).toEqual({ '2026-08-10|1-9': ['a1'] });
-  });
+  }
 
-  it('verkraftet kaputte Eingaben', () => {
-    expect(normalizeState(null).version).toBe(6);
-    expect(normalizeState('kaputt').mode).toBe('semester');
-    expect(normalizeState({}).assistants).toEqual([]);
-  });
+  /**
+   * Entfernt die Büro-Markierung eines Slots für eine Person, falls
+   * vorhanden. Wird an jeder Stelle aufgerufen, an der eine Zuweisung
+   * verschwindet — sonst würde eine spätere erneute Zuweisung fälschlich
+   * die alte Markierung wiederbeleben, statt wieder mit Theke zu beginnen.
+   */
+  private clearOfficeWork(officeWork: Record<string, string[]>, key: string, assistantId: string): void {
+    const current = officeWork[key];
+    if (!current?.includes(assistantId)) return;
+    const rest = current.filter((id) => id !== assistantId);
+    if (rest.length) officeWork[key] = rest;
+    else delete officeWork[key];
+  }
 
-  it('begradigt einen verkehrt eingegebenen Zeitraum', () => {
-    const state = normalizeState({ period: { start: '2026-09-01', end: '2026-08-01' } });
-    expect(state.period.end).toBe('2026-09-01');
-  });
+  toggleAssignment(key: SlotKeyLike, assistantId: string): void {
+    const slot = this.slotByKey(key);
+    // Entfernen ist immer erlaubt — nur das Hinzufügen wird durch Urlaub gesperrt.
+    if (slot && !this.isAssigned(key, assistantId) && this.isBlockedFor(assistantId, slot)) return;
+    this._state.update((s) => {
+      const current = s.assignments[key] ?? [];
+      const removing = current.includes(assistantId);
+      const next = removing
+        ? current.filter((id) => id !== assistantId)
+        : [...current, assistantId];
+      const assignments = { ...s.assignments };
+      if (next.length) assignments[key] = next;
+      else delete assignments[key];
 
-  it('verwirft Zuweisungen auf gelöschte Hilfskräfte', () => {
-    const state = normalizeState({
-      version: 4,
-      assistants: [],
-      assignments: { 'semester|1-9': ['weg'] },
+      const officeWork = { ...s.officeWork };
+      if (removing) this.clearOfficeWork(officeWork, key, assistantId);
+      return { ...s, assignments, officeWork };
     });
-    expect(state.assignments).toEqual({});
-  });
-});
+  }
 
-describe('Aufräumen beim Entfernen einer Hilfskraft', () => {
-  it('nimmt Verfügbarkeiten und Einteilungen mit', () => {
-    const store = makeStore(
-      semester({
-        availability: { a1: { 'semester|1-9': 'yes' } },
-        assignments: { 'semester|1-9': ['a1', 'a2'] },
-      }),
-    );
-    store.removeAssistant('a1');
-    expect(store.assistants()).toHaveLength(1);
-    expect(store.getAvailability('a1', 'semester|1-9')).toBeUndefined();
-    expect(store.assignedTo('semester|1-9')).toEqual(['a2']);
-  });
-});
+  /**
+   * Deckungsgrad einer Hilfskraft über mehrere Slots. Grundlage für die
+   * Darstellung eines Blocks: ganz, teilweise oder gar nicht eingeteilt.
+   */
+  assignmentCoverage(keys: SlotKeyLike[], assistantId: string): 'none' | 'some' | 'all' {
+    if (!keys.length) return 'none';
+    let assigned = 0;
+    for (const key of keys) {
+      if (this.isAssigned(key, assistantId)) assigned++;
+    }
+    if (!assigned) return 'none';
+    return assigned === keys.length ? 'all' : 'some';
+  }
+
+  /**
+   * Setzt oder entfernt eine Hilfskraft über einen ganzen Block. Teilweise
+   * belegte Blöcke werden aufgefüllt, nicht geleert — das ist beim
+   * Nachbessern einer Schicht die erwartete Richtung. Urlaubstage innerhalb
+   * des Blocks werden beim Auffüllen ausgelassen, beim Leeren wie gewohnt
+   * mit entfernt.
+   */
+  toggleAssignmentForSlots(keys: SlotKeyLike[], assistantId: string): void {
+    if (!keys.length) return;
+    const assign = this.assignmentCoverage(keys, assistantId) !== 'all';
+    const targets = assign ? this.withoutVacation(keys, assistantId) : keys;
+    if (!targets.length) return;
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+      const officeWork = { ...s.officeWork };
+      for (const key of targets) {
+        const current = assignments[key] ?? [];
+        if (assign) {
+          if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
+        } else {
+          const next = current.filter((id) => id !== assistantId);
+          if (next.length) assignments[key] = next;
+          else delete assignments[key];
+          this.clearOfficeWork(officeWork, key, assistantId);
+        }
+      }
+      return { ...s, assignments, officeWork };
+    });
+  }
+
+  /** Setzt eine Hilfskraft auf die angegebenen Slots, ohne andere zu verdrängen. */
+  assignToSlots(keys: SlotKeyLike[], assistantId: string): void {
+    const targets = this.withoutVacation(keys, assistantId);
+    if (!targets.length) return;
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+      for (const key of targets) {
+        const current = assignments[key] ?? [];
+        if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
+      }
+      return { ...s, assignments };
+    });
+  }
+
+  /**
+   * Verschiebt eine Hilfskraft von einem oder mehreren Slots auf andere.
+   * Quelle und Ziel werden in einem Schritt geändert, damit beim Ziehen kein
+   * Zwischenzustand entsteht, in dem die Person nirgends eingeteilt ist —
+   * insbesondere dann nicht, wenn sich Quelle und Ziel überschneiden.
+   *
+   * Fällt auch nur ein Zielslot auf einen Urlaubstag, wird die gesamte
+   * Verschiebung verweigert (alles oder nichts): ein teilweise verschobener
+   * Block würde sonst unbemerkt Stunden verlieren.
+   */
+  moveAssignment(from: SlotKeyLike | SlotKeyLike[], to: SlotKeyLike[], assistantId: string): void {
+    if (!to.length) return;
+    if (this.withoutVacation(to, assistantId).length !== to.length) return;
+    const sources = Array.isArray(from) ? from : [from];
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+      const officeWork = { ...s.officeWork };
+
+      for (const key of sources) {
+        const rest = (assignments[key] ?? []).filter((id) => id !== assistantId);
+        if (rest.length) assignments[key] = rest;
+        else delete assignments[key];
+        this.clearOfficeWork(officeWork, key, assistantId);
+      }
+
+      for (const key of to) {
+        const current = assignments[key] ?? [];
+        if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
+      }
+      return { ...s, assignments, officeWork };
+    });
+  }
+
+  /** Überträgt die Einteilung einer Woche auf eine andere, Stelle für Stelle. */
+  copyWeek(source: WeekKey, target: WeekKey): number {
+    if (source === target) return 0;
+    let copied = 0;
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+      for (const slot of this.slotsOfWeek(target)) {
+        const ids = s.assignments[`${source}|${slot.weekdayKey}`];
+        if (!ids?.length) continue;
+        assignments[slot.key] = [...ids];
+        copied++;
+      }
+      return { ...s, assignments };
+    });
+    return copied;
+  }
+
+  clearWeek(week: WeekKey): void {
+    this._state.update((s) => {
+      const assignments = { ...s.assignments };
+      const officeWork = { ...s.officeWork };
+      for (const slot of this.slotsOfWeek(week)) {
+        delete assignments[slot.key];
+        delete officeWork[slot.key];
+      }
+      return { ...s, assignments, officeWork };
+    });
+  }
+
+  clearAssignments(): void {
+    this._state.update((s) => ({ ...s, assignments: {}, officeWork: {} }));
+  }
+
+  /** Entfernt Zuweisungen, die zu keinem aktuellen Wochenplan gehören. */
+  pruneOrphanAssignments(): void {
+    const valid = new Set(this.slots().map((s) => s.key));
+    this._state.update((s) => {
+      const assignments: Record<string, string[]> = {};
+      for (const [key, ids] of Object.entries(s.assignments)) {
+        if (valid.has(key) && ids.length) assignments[key] = ids;
+      }
+      const officeWork: Record<string, string[]> = {};
+      for (const [key, ids] of Object.entries(s.officeWork)) {
+        if (assignments[key]?.length) officeWork[key] = ids.filter((id) => assignments[key]!.includes(id));
+      }
+      return { ...s, assignments, officeWork };
+    });
+  }
+
+  // --- Import / Reset -------------------------------------------------------
+
+  replaceState(next: unknown): void {
+    this._state.set(normalizeState(next));
+  }
+
+  reset(): void {
+    this._state.set(createDefaultState());
+  }
+}
+
+/** Slotschlüssel; als eigener Alias, damit Aufrufe lesbar bleiben. */
+type SlotKeyLike = string;

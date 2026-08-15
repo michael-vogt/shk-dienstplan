@@ -466,6 +466,21 @@ export class ScheduleStore {
     return this.slotsOfWeek(week).filter((s) => this.getAvailability(assistantId, s.key)).length;
   }
 
+  /**
+   * Zahl der Hilfskräfte, die für einen Slot „Ja" oder „Wenn es sein muss"
+   * angegeben haben. Urlaub schlägt eine Antwort — wer an diesem Tag Urlaub
+   * hat, zählt nicht mit, unabhängig davon, was in der Matrix steht.
+   */
+  availableCount(key: SlotKeyLike, date: IsoDate | null): number {
+    let count = 0;
+    for (const assistant of this._state().assistants) {
+      if (date && this.isOnVacation(assistant.id, date)) continue;
+      const answer = this.getAvailability(assistant.id, key);
+      if (answer === 'yes' || answer === 'ifNeeded') count++;
+    }
+    return count;
+  }
+
   setAvailability(assistantId: string, key: SlotKeyLike, value: Availability | undefined): void {
     this._state.update((s) => {
       const forAssistant = { ...(s.availability[assistantId] ?? {}) };
