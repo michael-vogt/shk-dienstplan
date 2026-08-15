@@ -4,6 +4,7 @@
   "scripts": {
     "start": "ng serve",
     "build": "ng build",
+    "build:offline": "ng build --configuration production && node tools/bundle-offline.mjs",
     "test": "ng test"
   },
   "private": true,
