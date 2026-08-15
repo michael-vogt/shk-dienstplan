@@ -119,7 +119,7 @@ export interface Assistant {
 }
 
 export interface ScheduleState {
-  version: 5;
+  version: 6;
   title: string;
   mode: PlanMode;
   /** Nur im Ferienmodus ausgewertet. */
@@ -131,6 +131,13 @@ export interface ScheduleState {
   availability: Record<string, Record<SlotKey, Availability>>;
   /** SlotKey -> eingeteilte assistantIds. */
   assignments: Record<SlotKey, string[]>;
+  /**
+   * SlotKey -> assistantIds, die dort im Büro statt an der Theke eingeteilt
+   * sind. Theke ist der Normalfall und wird nicht extra gespeichert, nur die
+   * Abweichung. Ein Eintrag zählt nur, solange die Person dem Slot auch
+   * tatsächlich zugewiesen ist — siehe `isOfficeWork()` im Store.
+   */
+  officeWork: Record<SlotKey, string[]>;
 }
 
 export type WarningLevel = 'error' | 'warn' | 'info';

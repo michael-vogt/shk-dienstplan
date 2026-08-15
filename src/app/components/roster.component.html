@@ -3,6 +3,8 @@
     <h2>Dienstplan</h2>
     <p class="hint">
       Stunde auswählen, dann rechts die Hilfskräfte zuschalten. Mehrfachbesetzung ist möglich.
+      Auf einer eingeteilten Plakette lässt sich per Klick auf „Theke" / „Büro" der Einsatzort
+      dieser einzelnen Stunde umschalten.
     </p>
   </header>
 
@@ -117,6 +119,7 @@
                           track assistant.id) {
                           <span
                             class="pill"
+                            [class.office]="isOffice(day, hour, assistant.id)"
                             draggable="true"
                             [style.background]="assistant.color"
                             [attr.title]="assistant.name + ' — ziehen zum Verschieben'"
@@ -124,6 +127,25 @@
                             (dragend)="endDrag()"
                           >
                             {{ assistant.name }}
+                            <!--
+                              Eigenes Element statt eines <button>: die ganze
+                              Stunde ist bereits ein <button>, und verschachtelte
+                              Buttons sind ungültiges HTML — der Browser würde
+                              dieses Element sonst unkontrolliert aus der
+                              Plakette herauslösen.
+                            -->
+                            <span
+                              class="task-toggle"
+                              role="button"
+                              tabindex="0"
+                              [attr.aria-label]="assistant.name + ': ' + taskLabel(day, hour, assistant.id) + ' — umschalten'"
+                              [attr.title]="'Umschalten: ' + (isOffice(day, hour, assistant.id) ? 'zurück zur Theke' : 'für diese Stunde ins Büro')"
+                              (click)="toggleTask(day, hour, assistant.id); $event.stopPropagation()"
+                              (keydown.enter)="toggleTask(day, hour, assistant.id); $event.stopPropagation()"
+                              (keydown.space)="toggleTask(day, hour, assistant.id); $event.stopPropagation(); $event.preventDefault()"
+                            >
+                              {{ isOffice(day, hour, assistant.id) ? 'Büro' : 'Theke' }}
+                            </span>
                           </span>
                         } @empty {
                           <span class="placeholder">frei</span>
@@ -258,6 +280,9 @@
                           @for (assistant of assignedFor(plan.key, day, hour); track assistant.id) {
                             <span class="pill" [style.background]="assistant.color">
                               {{ assistant.name }}
+                              @if (isOfficeIn(plan.key, day, hour, assistant.id)) {
+                                <span class="office-tag">Büro</span>
+                              }
                             </span>
                           } @empty {
                             <span class="placeholder">frei</span>

@@ -63,6 +63,21 @@ Aufbau der Wochenpläne in beiden Modi, angebrochene Wochen am Rand des Zeitraum
 Übertragen zwischen Wochen, der Moduswechsel und die Migration älterer Stände. Die Komponenten sind bewusst nicht getestet — sie enthalten
 nur Darstellung, die Logik liegt vollständig im Store.
 
+## Theke und Büro
+
+Grundsätzlich arbeiten Hilfskräfte an der Ausleihtheke — das ist der Normalfall und wird nicht
+extra gespeichert. Auf jeder eingeteilten Plakette im Dienstplan lässt sich der kleine Schalter
+„Theke" / „Büro" anklicken, um genau diese eine Person für genau diese eine Stunde als
+Hintergrundarbeit im Büro zu kennzeichnen. Die Markierung gilt ausschließlich für die einzelne
+Zuweisung — bei mehreren Personen im selben Slot lässt sich frei mischen, wer an der Theke steht
+und wer im Büro ist.
+
+Die Markierung hängt an der konkreten Zuweisung, nicht an der Person: wird jemand aus einem Slot
+entfernt (per Klick, Verschieben, Wochen leeren oder rückwirkend durch eingetragenen Urlaub), geht
+die Büro-Markierung mit verloren. Eine erneute Zuweisung an derselben Stelle beginnt wieder als
+Theke. CSV-Export und Ausdruck kennzeichnen Büro-Einteilungen mit dem Zusatz „(Büro)" hinter dem
+Namen.
+
 ## Urlaub
 
 Nur im Ferienplan verfügbar, weil nur dort Slots einem Kalendertag entsprechen — der Semesterplan

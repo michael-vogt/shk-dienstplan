@@ -45,7 +45,11 @@ export class ExportService {
       for (const slot of this.store.slotsOfWeek(plan.key)) {
         const names = this.store
           .assignedTo(slot.key)
-          .map((id) => assistants.find((a) => a.id === id)?.name)
+          .map((id) => {
+            const name = assistants.find((a) => a.id === id)?.name;
+            if (!name) return null;
+            return this.store.isOfficeWork(slot.key, id) ? `${name} (Büro)` : name;
+          })
           .filter((name): name is string => !!name);
         const tail = [
           WEEKDAY_LABELS[slot.weekday],

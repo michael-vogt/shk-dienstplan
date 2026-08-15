@@ -198,6 +198,24 @@ export class RosterComponent {
       .filter((a): a is Assistant => !!a);
   }
 
+  /** Büro statt Theke — im aktuell angezeigten Wochenplan. */
+  isOffice(weekday: Weekday, hour: number, assistantId: string): boolean {
+    return this.store.isOfficeWork(this.key(weekday, hour), assistantId);
+  }
+
+  /** Dieselbe Prüfung für einen beliebigen Wochenplan, für die Druckansicht. */
+  isOfficeIn(week: WeekKey, weekday: Weekday, hour: number, assistantId: string): boolean {
+    return this.store.isOfficeWork(slotKey(week, weekday, hour), assistantId);
+  }
+
+  toggleTask(weekday: Weekday, hour: number, assistantId: string): void {
+    this.store.toggleTask(this.key(weekday, hour), assistantId);
+  }
+
+  taskLabel(weekday: Weekday, hour: number, assistantId: string): string {
+    return this.isOffice(weekday, hour, assistantId) ? 'Büro' : 'Theke';
+  }
+
   levelFor(weekday: Weekday, hour: number): string | null {
     const list = this.store.warningsBySlot().get(this.key(weekday, hour));
     if (!list?.length) return null;

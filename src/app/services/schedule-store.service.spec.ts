@@ -351,6 +351,91 @@ describe('Urlaub', () => {
   });
 });
 
+describe('Einsatzort (Theke / Büro)', () => {
+  it('ist standardmäßig Theke, also nicht als Büro markiert', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+  });
+
+  it('schaltet zwischen Theke und Büro um', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.toggleTask('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(true);
+    store.toggleTask('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+  });
+
+  it('lässt sich ohne bestehende Zuweisung nicht umschalten', () => {
+    const store = makeStore(semester());
+    store.toggleTask('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+  });
+
+  it('darf keine Vorbelegung hinterlassen, die bei späterer Zuweisung auftaucht', () => {
+    // Der No-op bei fehlender Zuweisung muss wirklich nichts schreiben —
+    // sonst könnte ein Toggle-Versuch ins Leere unbemerkt eine Markierung
+    // hinterlegen, die erst bei der nächsten Zuweisung sichtbar würde.
+    const store = makeStore(semester());
+    store.toggleTask('semester|1-9', 'a1');
+    store.toggleAssignment('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+  });
+
+  it('betrifft nur die eine Person im Slot, nicht andere', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1', 'a2'] } }));
+    store.toggleTask('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(true);
+    expect(store.isOfficeWork('semester|1-9', 'a2')).toBe(false);
+  });
+
+  it('verschwindet automatisch, sobald die Zuweisung entfernt wird', () => {
+    // Zentrale Garantie: isOfficeWork prüft gegen die aktuelle Zuweisung,
+    // nicht nur gegen den rohen Zustand — ohne dass jede der verschiedenen
+    // Entfernungsstellen die Markierung einzeln aufräumen müsste.
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.toggleTask('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(true);
+    store.toggleAssignment('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+  });
+
+  it('verschwindet auch beim Verschieben aus der Quelle', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.toggleTask('semester|1-9', 'a1');
+    store.moveAssignment('semester|1-9', ['semester|2-9'], 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+    // Am neuen Ort gilt wieder der Normalfall Theke, nicht automatisch Büro.
+    expect(store.isOfficeWork('semester|2-9', 'a1')).toBe(false);
+  });
+
+  it('kehrt beim Rückgängigmachen einer Entfernung nicht von selbst zurück', () => {
+    // Wird dieselbe Person später erneut demselben Slot zugewiesen, startet
+    // sie wieder als Theke — die Markierung lebt nur, solange die konkrete
+    // Zuweisung ununterbrochen besteht.
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.toggleTask('semester|1-9', 'a1');
+    store.toggleAssignment('semester|1-9', 'a1'); // entfernen
+    store.toggleAssignment('semester|1-9', 'a1'); // erneut zuweisen
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+  });
+
+  it('räumt beim Entfernen der Hilfskraft mit auf', () => {
+    // STAFF enthält zwei Personen (a1, a2) — nach dem Entfernen bleibt a2.
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.toggleTask('semester|1-9', 'a1');
+    store.removeAssistant('a1');
+    expect(store.assistants().map((a) => a.id)).toEqual(['a2']);
+  });
+
+  it('verschwindet beim Leeren einer Woche und lebt bei Neuzuweisung nicht wieder auf', () => {
+    const store = makeStore(semester({ assignments: { 'semester|1-9': ['a1'] } }));
+    store.toggleTask('semester|1-9', 'a1');
+    store.clearAssignments();
+    store.toggleAssignment('semester|1-9', 'a1');
+    expect(store.isOfficeWork('semester|1-9', 'a1')).toBe(false);
+  });
+});
+
 describe('Blockzuweisung', () => {
   const BLOCK = ['semester|1-9', 'semester|1-10', 'semester|1-11'];
 
@@ -622,7 +707,7 @@ describe('Migration älterer Stände', () => {
       availability: { a1: { '1-9': 'yes' } },
       assignments: { '1-9': ['a1'], '3-10': ['a1', 'a2'] },
     });
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.mode).toBe('semester');
     expect(state.title).toBe('Alter Plan');
     expect(state.assignments['semester|1-9']).toEqual(['a1']);
@@ -664,7 +749,7 @@ describe('Migration älterer Stände', () => {
   });
 
   it('verkraftet kaputte Eingaben', () => {
-    expect(normalizeState(null).version).toBe(5);
+    expect(normalizeState(null).version).toBe(6);
     expect(normalizeState('kaputt').mode).toBe('semester');
     expect(normalizeState({}).assistants).toEqual([]);
   });

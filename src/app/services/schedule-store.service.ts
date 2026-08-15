@@ -70,7 +70,7 @@ function defaultPeriod(): { start: IsoDate; end: IsoDate } {
 
 function createDefaultState(): ScheduleState {
   return {
-    version: 5,
+    version: 6,
     title: 'Dienstplan Bibliothek',
     mode: 'semester',
     period: defaultPeriod(),
@@ -84,6 +84,7 @@ function createDefaultState(): ScheduleState {
     vacations: [],
     availability: {},
     assignments: {},
+    officeWork: {},
   };
 }
 
@@ -257,8 +258,18 @@ export function normalizeState(input: unknown): ScheduleState {
   }
   vacations.sort((a, b) => a.from.localeCompare(b.from));
 
+  const officeWork: ScheduleState['officeWork'] = {};
+  const rawOfficeWork = (raw['officeWork'] ?? {}) as Record<string, unknown>;
+  for (const [key, ids] of Object.entries(rawOfficeWork)) {
+    if (!Array.isArray(ids)) continue;
+    // Bewusst nicht gegen `assignments` geprüft: die Zugehörigkeit wird beim
+    // Lesen über isOfficeWork() erzwungen, nicht schon hier beim Speichern.
+    const kept = [...new Set(ids.filter((id): id is string => knownIds.has(id as string)))];
+    if (kept.length) officeWork[key] = kept;
+  }
+
   return {
-    version: 5,
+    version: 6,
     title: typeof raw['title'] === 'string' && raw['title'].trim() ? raw['title'] : base.title,
     mode,
     period,
@@ -267,6 +278,7 @@ export function normalizeState(input: unknown): ScheduleState {
     vacations,
     availability,
     assignments,
+    officeWork,
   };
 }
 
@@ -710,12 +722,18 @@ export class ScheduleStore {
         const kept = ids.filter((x) => x !== id);
         if (kept.length) assignments[key] = kept;
       }
+      const officeWork: Record<string, string[]> = {};
+      for (const [key, ids] of Object.entries(s.officeWork)) {
+        const kept = ids.filter((x) => x !== id);
+        if (kept.length) officeWork[key] = kept;
+      }
       return {
         ...s,
         assistants: s.assistants.filter((a) => a.id !== id),
         vacations: s.vacations.filter((v) => v.assistantId !== id),
         availability,
         assignments,
+        officeWork,
       };
     });
   }
@@ -738,6 +756,7 @@ export class ScheduleStore {
       vacations.sort((a, b) => a.from.localeCompare(b.from));
 
       const assignments = { ...s.assignments };
+      const officeWork = { ...s.officeWork };
       for (const slot of this.slots()) {
         if (!slot.date || !isWithin(slot.date, range.from, range.to)) continue;
         const current = assignments[slot.key];
@@ -745,9 +764,10 @@ export class ScheduleStore {
         const rest = current.filter((id) => id !== assistantId);
         if (rest.length) assignments[slot.key] = rest;
         else delete assignments[slot.key];
+        this.clearOfficeWork(officeWork, slot.key, assistantId);
       }
 
-      return { ...s, vacations, assignments };
+      return { ...s, vacations, assignments, officeWork };
     });
   }
 
@@ -763,6 +783,38 @@ export class ScheduleStore {
 
   isAssigned(key: SlotKeyLike, assistantId: string): boolean {
     return this.assignedTo(key).includes(assistantId);
+  }
+
+  // --- Einsatzort (Theke / Büro) --------------------------------------------
+  // Theke ist der Normalfall; nur die Abweichung „Büro" wird gespeichert.
+
+  /**
+   * Ist die Person an diesem Slot im Büro statt an der Theke? Geprüft wird
+   * bewusst gegen die aktuelle Zuweisung, nicht nur gegen den rohen
+   * Zustand — wird eine Zuweisung entfernt (Klick, Verschieben, Urlaub),
+   * verschwindet die Ortsmarkierung damit automatisch mit, ohne dass jede
+   * der verschiedenen Entfernungsstellen sie einzeln aufräumen müsste.
+   */
+  isOfficeWork(key: SlotKeyLike, assistantId: string): boolean {
+    if (!this.isAssigned(key, assistantId)) return false;
+    return this._state().officeWork[key]?.includes(assistantId) ?? false;
+  }
+
+  /** Wechselt zwischen Theke und Büro. Ohne bestehende Zuweisung ein No-op. */
+  toggleTask(key: SlotKeyLike, assistantId: string): void {
+    if (!this.isAssigned(key, assistantId)) return;
+    this._state.update((s) => {
+      const current = s.officeWork[key] ?? [];
+      const officeWork = { ...s.officeWork };
+      if (current.includes(assistantId)) {
+        const rest = current.filter((id) => id !== assistantId);
+        if (rest.length) officeWork[key] = rest;
+        else delete officeWork[key];
+      } else {
+        officeWork[key] = [...current, assistantId];
+      }
+      return { ...s, officeWork };
+    });
   }
 
   /** Slot zu einem Schlüssel, falls er im aktuellen Plan existiert. */
@@ -781,19 +833,37 @@ export class ScheduleStore {
     });
   }
 
+  /**
+   * Entfernt die Büro-Markierung eines Slots für eine Person, falls
+   * vorhanden. Wird an jeder Stelle aufgerufen, an der eine Zuweisung
+   * verschwindet — sonst würde eine spätere erneute Zuweisung fälschlich
+   * die alte Markierung wiederbeleben, statt wieder mit Theke zu beginnen.
+   */
+  private clearOfficeWork(officeWork: Record<string, string[]>, key: string, assistantId: string): void {
+    const current = officeWork[key];
+    if (!current?.includes(assistantId)) return;
+    const rest = current.filter((id) => id !== assistantId);
+    if (rest.length) officeWork[key] = rest;
+    else delete officeWork[key];
+  }
+
   toggleAssignment(key: SlotKeyLike, assistantId: string): void {
     const slot = this.slotByKey(key);
     // Entfernen ist immer erlaubt — nur das Hinzufügen wird durch Urlaub gesperrt.
     if (slot && !this.isAssigned(key, assistantId) && this.isBlockedFor(assistantId, slot)) return;
     this._state.update((s) => {
       const current = s.assignments[key] ?? [];
-      const next = current.includes(assistantId)
+      const removing = current.includes(assistantId);
+      const next = removing
         ? current.filter((id) => id !== assistantId)
         : [...current, assistantId];
       const assignments = { ...s.assignments };
       if (next.length) assignments[key] = next;
       else delete assignments[key];
-      return { ...s, assignments };
+
+      const officeWork = { ...s.officeWork };
+      if (removing) this.clearOfficeWork(officeWork, key, assistantId);
+      return { ...s, assignments, officeWork };
     });
   }
 
@@ -825,6 +895,7 @@ export class ScheduleStore {
     if (!targets.length) return;
     this._state.update((s) => {
       const assignments = { ...s.assignments };
+      const officeWork = { ...s.officeWork };
       for (const key of targets) {
         const current = assignments[key] ?? [];
         if (assign) {
@@ -833,9 +904,10 @@ export class ScheduleStore {
           const next = current.filter((id) => id !== assistantId);
           if (next.length) assignments[key] = next;
           else delete assignments[key];
+          this.clearOfficeWork(officeWork, key, assistantId);
         }
       }
-      return { ...s, assignments };
+      return { ...s, assignments, officeWork };
     });
   }
 
@@ -869,18 +941,20 @@ export class ScheduleStore {
     const sources = Array.isArray(from) ? from : [from];
     this._state.update((s) => {
       const assignments = { ...s.assignments };
+      const officeWork = { ...s.officeWork };
 
       for (const key of sources) {
         const rest = (assignments[key] ?? []).filter((id) => id !== assistantId);
         if (rest.length) assignments[key] = rest;
         else delete assignments[key];
+        this.clearOfficeWork(officeWork, key, assistantId);
       }
 
       for (const key of to) {
         const current = assignments[key] ?? [];
         if (!current.includes(assistantId)) assignments[key] = [...current, assistantId];
       }
-      return { ...s, assignments };
+      return { ...s, assignments, officeWork };
     });
   }
 
@@ -904,13 +978,17 @@ export class ScheduleStore {
   clearWeek(week: WeekKey): void {
     this._state.update((s) => {
       const assignments = { ...s.assignments };
-      for (const slot of this.slotsOfWeek(week)) delete assignments[slot.key];
-      return { ...s, assignments };
+      const officeWork = { ...s.officeWork };
+      for (const slot of this.slotsOfWeek(week)) {
+        delete assignments[slot.key];
+        delete officeWork[slot.key];
+      }
+      return { ...s, assignments, officeWork };
     });
   }
 
   clearAssignments(): void {
-    this._state.update((s) => ({ ...s, assignments: {} }));
+    this._state.update((s) => ({ ...s, assignments: {}, officeWork: {} }));
   }
 
   /** Entfernt Zuweisungen, die zu keinem aktuellen Wochenplan gehören. */
@@ -921,7 +999,11 @@ export class ScheduleStore {
       for (const [key, ids] of Object.entries(s.assignments)) {
         if (valid.has(key) && ids.length) assignments[key] = ids;
       }
-      return { ...s, assignments };
+      const officeWork: Record<string, string[]> = {};
+      for (const [key, ids] of Object.entries(s.officeWork)) {
+        if (assignments[key]?.length) officeWork[key] = ids.filter((id) => assignments[key]!.includes(id));
+      }
+      return { ...s, assignments, officeWork };
     });
   }
 
