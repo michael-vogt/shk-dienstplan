@@ -180,6 +180,32 @@ export class AvailabilityComponent {
     if (!copied) alert('In dieser Woche ist für die gewählte Hilfskraft nichts eingetragen.');
   }
 
+  /**
+   * Überträgt die gerade angezeigte Woche auf alle anderen Wochenpläne.
+   * Überschreibt dort bestehende Antworten, deshalb erst eine ausdrückliche
+   * Bestätigung — anders als bei der Einzelwoche ist das nicht mit einem
+   * Klick rückgängig zu machen.
+   */
+  copyToAllWeeks(): void {
+    const id = this.selectedId();
+    if (!id) return;
+    const assistant = this.store.assistants().find((a) => a.id === id);
+    const weekCount = this.otherWeeks().length;
+    if (!weekCount) return;
+
+    const ok = confirm(
+      `Verfügbarkeiten von ${assistant?.name ?? 'dieser Person'} aus der aktuell angezeigten ` +
+      `Woche auf alle ${weekCount} anderen Wochen übertragen? Bestehende Antworten dort ` +
+      `werden dabei überschrieben.`,
+    );
+    if (!ok) return;
+
+    const result = this.store.copyAvailabilityToAllWeeks(id, this.selectedWeek());
+    if (!result.slots) {
+      alert('In der aktuell angezeigten Woche ist für diese Person nichts eingetragen.');
+    }
+  }
+
   add(input: HTMLInputElement): void {
     this.store.addAssistant(input.value);
     input.value = '';

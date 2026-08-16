@@ -82,6 +82,9 @@
               }
             </select>
           </label>
+          <button type="button" class="ghost" (click)="copyToAllWeeks()">
+            Diese Woche auf alle {{ otherWeeks().length }} anderen übertragen
+          </button>
           <span class="scope-note">gilt für die gerade gewählte Hilfskraft</span>
         </div>
       }

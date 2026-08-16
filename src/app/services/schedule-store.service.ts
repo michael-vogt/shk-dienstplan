@@ -535,6 +535,24 @@ export class ScheduleStore {
     return copied;
   }
 
+  /**
+   * Überträgt die Angaben einer Woche in einem Rutsch auf alle anderen
+   * Wochenpläne. Überschreibt dort bestehende Antworten vollständig, genau
+   * wie `copyAvailability()` für eine einzelne Zielwoche — der Aufrufer
+   * (die Oberfläche) muss vorher nachfragen, das übernimmt der Store nicht.
+   */
+  copyAvailabilityToAllWeeks(assistantId: string, source: WeekKey): { weeks: number; slots: number } {
+    let weeks = 0;
+    let slots = 0;
+    for (const plan of this.weekPlans()) {
+      if (plan.key === source) continue;
+      const copied = this.copyAvailability(assistantId, source, plan.key);
+      if (copied > 0) weeks++;
+      slots += copied;
+    }
+    return { weeks, slots };
+  }
+
   // --- Warnungen ------------------------------------------------------------
 
   readonly warnings = computed<ScheduleWarning[]>(() => {

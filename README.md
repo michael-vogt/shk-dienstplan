@@ -63,6 +63,11 @@ Aufbau der Wochenpläne in beiden Modi, angebrochene Wochen am Rand des Zeitraum
 Übertragen zwischen Wochen, der Moduswechsel und die Migration älterer Stände. Die Komponenten sind bewusst nicht getestet — sie enthalten
 nur Darstellung, die Logik liegt vollständig im Store.
 
+Im Ferienplan lässt sich außerdem die gerade angezeigte Woche mit einem Klick auf alle anderen
+Wochenpläne übertragen (statt sie einzeln der Reihe nach auszuwählen). Das überschreibt dort
+bestehende Antworten der gewählten Hilfskraft vollständig, deshalb erst nach einer ausdrücklichen
+Bestätigung.
+
 ## Wochenübersicht in den Verfügbarkeiten
 
 Unterhalb der Bearbeitungsmatrix zeigt eine zweite, kompakte Tabelle je Slot die Zahl der
@@ -70,6 +75,21 @@ Hilfskräfte mit „Ja" oder „Wenn es sein muss" — unabhängig davon, welche
 bearbeitet wird. Urlaub schlägt eine vorher eingetragene Antwort: wer an diesem Tag Urlaub hat,
 zählt nicht mit. Die Färbung ist eine grobe Einstufung (0 rot, 1 gelb, ab 2 grün), gedacht als
 schneller Blick darauf, welche Stunden dünn besetzt sind, bevor die Einteilung beginnt.
+
+## Datenschutz
+
+Die App sendet zu keinem Zeitpunkt Daten über das Netzwerk — im gesamten Quellcode gibt es keinen
+`fetch`-, `XMLHttpRequest`- oder sonstigen HTTP-Aufruf zur Laufzeit. Alle Daten (Namen der
+Hilfskräfte, Verfügbarkeiten, Urlaub, Einteilung) bleiben ausschließlich lokal auf dem Gerät, auf
+dem die App läuft. Das gilt unabhängig davon, ob `localStorage` oder eine verknüpfte Datei genutzt
+wird: auch `localStorage` verlässt den Rechner nie, sondern liegt browserintern als Datei auf der
+Festplatte.
+
+Der Unterschied zwischen beiden ist keiner der Sicherheit, sondern der Nachvollziehbarkeit:
+`localStorage` liegt an einem für den Nutzer nicht einsehbaren Ort im Browserprofil, eine
+verknüpfte Datei liegt dort, wo man sie selbst ablegt — mit sichtbarem Pfad, gezielt lösch- und
+sicherbar. Wer dokumentieren muss, wo personenbezogene Daten liegen, kann bei einer verknüpften
+Datei auf einen konkreten Pfad verweisen statt auf eine Blackbox im Browser.
 
 ## Datenhaltung: Browser oder verknüpfte Datei
 
