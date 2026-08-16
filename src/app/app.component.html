@@ -72,6 +72,9 @@
   <button type="button" [class.active]="step() === 'roster'" (click)="step.set('roster')">
     3 · Dienstplan
   </button>
+  <button type="button" class="help-tab" [class.active]="step() === 'help'" (click)="step.set('help')">
+    Hilfe
+  </button>
 </nav>
 
 <main>
@@ -84,6 +87,9 @@
     }
     @case ('roster') {
       <app-roster />
+    }
+    @case ('help') {
+      <app-help />
     }
   }
 </main>

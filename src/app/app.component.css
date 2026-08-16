@@ -90,6 +90,11 @@
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
+/* Kein vierter Schritt, sondern eine jederzeit erreichbare Referenz — daher
+   nach rechts abgesetzt statt in die Reihenfolge 1-2-3 eingegliedert. */
+.steps button.help-tab {
+  margin-left: auto;
+}
 footer {
   margin-top: 2rem;
   font-size: 0.78rem;

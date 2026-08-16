@@ -1,0 +1,105 @@
+details {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.6rem;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.2rem 0;
+}
+summary:hover {
+  color: var(--accent);
+}
+details[open] summary {
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
+}
+.body {
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.body p {
+  margin: 0 0 0.75rem;
+}
+.body ul {
+  margin: 0 0 0.75rem;
+  padding-left: 1.3rem;
+}
+.body li {
+  margin-bottom: 0.35rem;
+}
+.body h3 {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 1rem 0 0.4rem;
+}
+.note {
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+/* Zustandsfarben 1:1 aus dem Verfügbarkeitsraster übernommen (eigene Kopie,
+   da Komponentenstile in Angular nicht über Komponentengrenzen hinweg
+   gelten) — damit stimmt die Legende hier exakt mit der App überein. */
+.state-yes {
+  background: #d6ece0;
+}
+.state-ifNeeded {
+  background: #f7e5c2;
+}
+.state-no {
+  background: #ece1e1;
+}
+.state-unset {
+  background: #fff;
+}
+.state-vacation {
+  background: #ece6f0;
+}
+.swatch {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 1px solid var(--line);
+  display: inline-block;
+}
+
+.legend-table,
+.ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+}
+.legend-table td,
+.ref-table td,
+.ref-table th {
+  border-bottom: 1px solid var(--line);
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+.legend-table td:first-child {
+  width: 2rem;
+}
+.ref-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.ref-table td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media print {
+  :host {
+    display: none;
+  }
+}

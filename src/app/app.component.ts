@@ -1,15 +1,16 @@
 import { Component, inject, signal } from '@angular/core';
 import { AvailabilityComponent } from './components/availability.component';
+import { HelpComponent } from './components/help.component';
 import { OpeningHoursComponent } from './components/opening-hours.component';
 import { RosterComponent } from './components/roster.component';
 import { ExportService } from './services/export.service';
 import { ScheduleStore } from './services/schedule-store.service';
 
-type Step = 'hours' | 'availability' | 'roster';
+type Step = 'hours' | 'availability' | 'roster' | 'help';
 
 @Component({
   selector: 'app-root',
-  imports: [OpeningHoursComponent, AvailabilityComponent, RosterComponent],
+  imports: [OpeningHoursComponent, AvailabilityComponent, RosterComponent, HelpComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })

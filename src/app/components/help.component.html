@@ -1,0 +1,274 @@
+<section class="panel">
+  <header class="panel-head">
+    <h2>Hilfe</h2>
+    <p class="hint">
+      Kurzanleitung zur Bedienung. Abschnitte lassen sich einzeln auf- und zuklappen.
+    </p>
+  </header>
+
+  <details open>
+    <summary>Überblick</summary>
+    <div class="body">
+      <p>
+        Mit dieser App wird jeweils <strong>ein</strong> Dienstplan geplant: entweder ein
+        Semesterplan oder ein Ferienplan. Welcher Typ aktiv ist, wird in Schritt 1 festgelegt.
+      </p>
+      <ul>
+        <li>
+          <strong>Semesterplan</strong> — eine Musterwoche ohne Datumsbezug, wiederkehrend
+          gültig für jede Woche des Semesters.
+        </li>
+        <li>
+          <strong>Ferienplan</strong> — für jede Kalenderwoche im gewählten Zeitraum wird
+          einzeln geplant, mit echten Terminen.
+        </li>
+      </ul>
+      <p>
+        Die Daten beider Typen bleiben beim Wechsel erhalten; die App zeigt immer nur einen
+        davon gleichzeitig.
+      </p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Schritt 1 — Plantyp und Öffnungszeiten</summary>
+    <div class="body">
+      <p>
+        Die beiden Kacheln oben wechseln zwischen Semester- und Ferienplan. Beim Ferienplan
+        erscheint zusätzlich ein Zeitraum (von/bis), aus dem sich die einzelnen Kalenderwochen
+        automatisch ergeben.
+      </p>
+      <p>
+        Für jeden Wochentag lässt sich festlegen, ob geöffnet ist sowie Start- und Endstunde.
+        „Auf alle Tage übertragen" überträgt die Zeiten eines Tages auf alle anderen.
+      </p>
+      <p class="note">
+        Die Öffnungszeiten gelten in beiden Plantypen gleich und für alle Wochen. Einzelne
+        abweichende Termine (Feiertage o. Ä.) werden nicht gesondert erfasst.
+      </p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Schritt 2 — Verfügbarkeiten</summary>
+    <div class="body">
+      <p>
+        Namen im Feld oben eintragen und mit „Hinzufügen" oder Enter bestätigen. Jede
+        Hilfskraft erscheint danach als farbiger Reiter.
+      </p>
+      <p>
+        Ein Klick auf eine Stunde im Raster der ausgewählten Person wechselt den Zustand im
+        Kreis:
+      </p>
+      <table class="legend-table">
+        <tbody>
+        <tr>
+          <td><span class="swatch state-yes"></span></td>
+          <td><strong>Ja</strong></td>
+          <td>Kann in dieser Stunde arbeiten</td>
+        </tr>
+        <tr>
+          <td><span class="swatch state-ifNeeded"></span></td>
+          <td><strong>Wenn es sein muss</strong></td>
+          <td>Geht zur Not, keine erste Wahl</td>
+        </tr>
+        <tr>
+          <td><span class="swatch state-no"></span></td>
+          <td><strong>Nein</strong></td>
+          <td>Nicht verfügbar — Zuweisung wird als Fehler markiert</td>
+        </tr>
+        <tr>
+          <td><span class="swatch state-unset"></span></td>
+          <td><strong>Noch offen</strong></td>
+          <td>Noch keine Antwort eingetragen</td>
+        </tr>
+        <tr>
+          <td><span class="swatch state-vacation"></span></td>
+          <td><strong>Urlaub</strong></td>
+          <td>Blockiert die Zuweisung vollständig (nur Ferienplan)</td>
+        </tr>
+        </tbody>
+      </table>
+      <p>
+        „alle Ja" am Spaltenkopf setzt einen ganzen Tag auf einmal, die Knöpfe „Ganze Woche"
+        die komplette Woche.
+      </p>
+
+      <h3>Im Ferienplan: mehrere Wochen</h3>
+      <p>Zwei Werkzeuge erleichtern das Ausfüllen über mehrere Wochen hinweg:</p>
+      <ul>
+        <li>
+          <strong>„Angaben übernehmen aus"</strong> — überträgt die Zeiten einer einzelnen
+          gewählten Woche auf die aktuell angezeigte.
+        </li>
+        <li>
+          <strong>„Diese Woche auf alle N anderen übertragen"</strong> — überträgt die aktuell
+          angezeigte Woche auf sämtliche übrigen. Bestehende Antworten dort werden
+          überschrieben, deshalb erst nach einer Sicherheitsabfrage.
+        </li>
+      </ul>
+
+      <h3>Wochenübersicht</h3>
+      <p>
+        Unterhalb der Bearbeitungstabelle zeigt eine zweite, kompakte Tabelle je Stunde, wie
+        viele Hilfskräfte insgesamt mit „Ja" oder „Wenn es sein muss" geantwortet haben —
+        unabhängig davon, welche Person gerade bearbeitet wird. Rot markiert eine Stunde ohne
+        jede Verfügbarkeit, Gelb eine mit nur einer Person, Grün ab zwei Personen.
+      </p>
+
+      <h3>Urlaub (nur Ferienplan)</h3>
+      <p>
+        Im Abschnitt „Urlaub" lässt sich für die ausgewählte Person ein Zeitraum eintragen.
+        Ein Klick auf einen Tag oben in der Kopfzeile übernimmt dessen Datum als Startdatum;
+        bleibt das Enddatum leer, gilt der Urlaub für die ganze angezeigte Woche.
+      </p>
+      <p class="note">
+        Urlaub ist eine echte Sperre: Für diese Tage lässt sich die Person im Dienstplan nicht
+        einteilen. Bereits geplante Stunden in diesem Zeitraum werden beim Eintragen automatisch
+        entfernt.
+      </p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Schritt 3 — Dienstplan</summary>
+    <div class="body">
+      <p>
+        Ein Klick auf eine Stunde zeigt rechts die passenden Kandidaten, sortiert nach
+        Verfügbarkeit. Ein Klick auf einen Namen teilt die Person zu oder entfernt sie.
+        Mehrere Personen können derselben Stunde zugewiesen werden, auch mit überlappenden
+        Zeiten.
+      </p>
+
+      <h3>Blöcke</h3>
+      <p>
+        <strong>Umschalt + Klick</strong> markiert eine zusammenhängende Reihe von Stunden
+        desselben Tages (ein Block bleibt immer innerhalb eines Tages).
+        <strong>Umschalt + Pfeil hoch/runter</strong> verlängert den Block ohne Maus. Ein Klick
+        auf einen Namen besetzt dann den ganzen Block; ist er teilweise besetzt, wird er
+        aufgefüllt statt geleert.
+      </p>
+
+      <h3>Ziehen und Ablegen</h3>
+      <p>
+        Namen lassen sich aus der Liste rechts oder direkt aus einer besetzten Stunde ziehen.
+        Ziehen aus einer Stunde <strong>verschiebt</strong> die Person; mit gedrückter
+        <strong>Strg-Taste</strong> wird stattdessen kopiert. Eine ganze gezogene Schicht behält
+        beim Ablegen ihre Länge und den angefassten Griffpunkt bei.
+      </p>
+      <p class="note">
+        Nach einer Verschiebung erscheint kurz „Verschoben — Rückgängig". Das betrifft nur
+        diesen einen Schritt und verschwindet bei der nächsten Änderung oder einem
+        Wochenwechsel.
+      </p>
+
+      <h3>Theke oder Büro</h3>
+      <p>
+        Grundsätzlich arbeiten Hilfskräfte an der Ausleihtheke. Auf jeder eingeteilten
+        Plakette lässt sich per Klick auf „Theke" / „Büro" kennzeichnen, dass diese eine Person
+        für genau diese eine Stunde stattdessen im Büro eingeteilt ist.
+      </p>
+
+      <h3>Hinweise</h3>
+      <p>
+        Unten listet die App alle Auffälligkeiten der angezeigten Woche: unbesetzte Stunden,
+        Zuweisungen entgegen einer „Nein"-Antwort oder ohne Antwort, sowie nur mit „Wenn es
+        sein muss" besetzte Stunden. Diese Hinweise blockieren nichts, sie weisen nur darauf
+        hin.
+      </p>
+
+      <h3>Im Ferienplan: Wochen kopieren</h3>
+      <p>
+        „Einteilung übernehmen aus" überträgt die Besetzung einer Woche auf die aktuell
+        angezeigte. „Zur laufenden Woche" springt zur Kalenderwoche, in der heute liegt.
+      </p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Daten sichern</summary>
+    <div class="body">
+      <p>
+        Alle Eingaben werden fortlaufend automatisch gespeichert — es gibt keinen separaten
+        Speichern-Knopf. Für die Datenhaltung stehen zwei Wege zur Verfügung:
+      </p>
+      <ul>
+        <li><strong>Im Browser</strong> (Standard) — die Daten liegen lokal auf diesem Gerät.</li>
+        <li>
+          <strong>Mit einer Datei verknüpft</strong> (Chrome, Edge, Opera) — über „Mit Datei
+          verknüpfen" oben in der Kopfzeile lässt sich eine eigene Datei wählen, in die jede
+          Änderung automatisch geschrieben wird, etwa auf einem gemeinsam genutzten Laufwerk.
+          In Firefox und Safari steht das nicht zur Verfügung.
+        </li>
+      </ul>
+      <p>
+        „Dienstplan als CSV" und „Verfügbarkeiten als CSV" exportieren beide Tabellen für
+        Excel. „Daten sichern" erzeugt eine vollständige Sicherungsdatei, die sich über
+        „Daten laden" auf einem anderen Rechner wieder einspielen lässt.
+      </p>
+      <p class="note">
+        Die App sendet zu keinem Zeitpunkt Daten über das Netzwerk — alle Daten bleiben
+        ausschließlich lokal, egal ob im Browser oder in einer verknüpften Datei.
+      </p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Drucken</summary>
+    <div class="body">
+      <p>
+        Strg+P druckt den Dienstplan. Gedruckt werden alle Wochenpläne, je einer pro Seite im
+        Querformat, ohne Bedienelemente und ohne die Hinweisliste — im Semesterplan ergibt das
+        genau eine Seite.
+      </p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Kurzreferenz</summary>
+    <div class="body">
+      <table class="ref-table">
+        <thead>
+        <tr>
+          <th>Aktion</th>
+          <th>Wirkung</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>Klick auf eine Stunde</td>
+          <td>Wählt sie aus; Kandidatenliste erscheint rechts</td>
+        </tr>
+        <tr>
+          <td>Umschalt + Klick</td>
+          <td>Erweitert die Auswahl zu einem Block (nur innerhalb eines Tages)</td>
+        </tr>
+        <tr>
+          <td>Umschalt + Pfeil hoch/runter</td>
+          <td>Verlängert den markierten Block ohne Maus</td>
+        </tr>
+        <tr>
+          <td>Klick auf einen Namen rechts</td>
+          <td>Teilt die Person dem markierten Block zu oder entfernt sie</td>
+        </tr>
+        <tr>
+          <td>Name ziehen (aus Liste oder Zelle)</td>
+          <td>Teilt zu bzw. verschiebt eine bestehende Zuweisung</td>
+        </tr>
+        <tr>
+          <td>Ziehen mit gedrückter Strg-Taste</td>
+          <td>Kopiert statt zu verschieben</td>
+        </tr>
+        <tr>
+          <td>„Theke" / „Büro" auf einer Plakette</td>
+          <td>Schaltet den Einsatzort dieser einzelnen Stunde um</td>
+        </tr>
+        <tr>
+          <td>Strg + P</td>
+          <td>Druckt den Dienstplan</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
