@@ -71,6 +71,28 @@ bearbeitet wird. Urlaub schlägt eine vorher eingetragene Antwort: wer an diesem
 zählt nicht mit. Die Färbung ist eine grobe Einstufung (0 rot, 1 gelb, ab 2 grün), gedacht als
 schneller Blick darauf, welche Stunden dünn besetzt sind, bevor die Einteilung beginnt.
 
+## Datenhaltung: Browser oder verknüpfte Datei
+
+Im Normalfall liegt der Dienstplan in `localStorage` — an den Browser und das Gerät gebunden,
+unsichtbar für den Nutzer. Wer mehr Kontrolle über den Ablageort will, kann die App stattdessen
+mit einer echten lokalen Datei verknüpfen (Knopf „Mit Datei verknüpfen" oben in der Kopfzeile):
+danach schreibt jede Änderung automatisch in diese Datei, zusätzlich weiterhin auch in
+`localStorage` als Absicherung, falls die Dateiberechtigung einmal fehlt.
+
+**Das funktioniert nur in Chrome, Edge und Opera.** Die dafür nötige File System Access API wird
+von Firefox nicht unterstützt — Mozilla lehnt sie aus grundsätzlichen Erwägungen ab, das ist keine
+Frage der Version — und Safari bietet nur ein für den Nutzer unsichtbares Sandbox-Dateisystem an,
+keinen Zugriff auf echte Dateien. In diesen Browsern erscheint der Knopf gar nicht erst; es bleibt
+bei `localStorage` und dem manuellen JSON-Export.
+
+Die Verknüpfung selbst (welche Datei es ist) merkt sich die App in IndexedDB, nicht in
+`localStorage` — ein Dateizugriffsobjekt lässt sich dort nicht ablegen. Nach einem Neustart der
+App wird die Verknüpfung automatisch wiederhergestellt, sofern der Browser die Berechtigung dafür
+noch gewährt; andernfalls erscheint wieder der Knopf zum erneuten Verbinden. Eine Datei, die auf
+einem synchronisierten Laufwerk liegt (Netzlaufwerk, OneDrive, Cloud-Ordner), lässt sich auf diese
+Weise wie eine gemeinsame Ablage nutzen — die App selbst synchronisiert dabei nichts, das
+übernimmt vollständig der jeweilige Dienst im Hintergrund.
+
 ## Theke und Büro
 
 Grundsätzlich arbeiten Hilfskräfte an der Ausleihtheke — das ist der Normalfall und wird nicht

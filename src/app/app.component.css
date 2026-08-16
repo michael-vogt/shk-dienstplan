@@ -43,6 +43,33 @@
   padding: 0.5rem 0.75rem;
   margin: 0 0 1rem;
 }
+.file-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.file-link-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.file-link strong {
+  color: var(--ink);
+}
+.dot-linked {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #1f7a54;
+  flex: none;
+}
 .steps {
   display: flex;
   gap: 0.25rem;
@@ -87,6 +114,7 @@ footer {
   .actions,
   .steps,
   .import-error,
+  .file-link,
   footer {
     display: none;
   }

@@ -37,6 +37,27 @@
   <p class="import-error">{{ error }}</p>
 }
 
+@if (store.fileLink.supported) {
+  <div class="file-link">
+    @if (store.fileLink.linkedFileName(); as name) {
+      <span class="file-link-status">
+        <span class="dot-linked" aria-hidden="true"></span>
+        Verknüpft mit <strong>{{ name }}</strong> — Änderungen werden dort automatisch gespeichert.
+      </span>
+      <button type="button" class="ghost" (click)="linkFile()">Erneut verknüpfen</button>
+      <button type="button" class="ghost" (click)="store.unlinkFile()">Verknüpfung lösen</button>
+    } @else {
+      <span class="file-link-status">
+        Bislang nur im Browser gespeichert.
+      </span>
+      <button type="button" class="ghost" (click)="linkFile()">Mit Datei verknüpfen</button>
+    }
+  </div>
+  @if (store.fileLink.writeError(); as writeError) {
+    <p class="import-error">{{ writeError }}</p>
+  }
+}
+
 <nav class="steps">
   <button type="button" [class.active]="step() === 'hours'" (click)="step.set('hours')">
     1 · Öffnungszeiten
@@ -67,4 +88,13 @@
   }
 </main>
 
-<footer>Alle Daten bleiben in diesem Browser. Zum Übertragen „Daten sichern" nutzen.</footer>
+<footer>
+  @if (store.fileLink.linkedFileName()) {
+    Änderungen werden automatisch in der verknüpften Datei gespeichert (zusätzlich als
+      Absicherung im Browser).
+  } @else {
+    Alle Daten bleiben in diesem Browser. Zum Übertragen „Daten sichern" nutzen{{
+      store.fileLink.supported ? ' oder eine Datei verknüpfen' : ''
+    }}.
+  }
+</footer>
