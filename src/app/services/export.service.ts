@@ -78,7 +78,7 @@ export class ExportService {
   }
 
   /**
-   * Verfügbarkeiten als Matrix: eine Zeile je Hilfskraft und Wochenplan.
+   * Verfügungszeiten als Matrix: eine Zeile je Hilfskraft und Wochenplan.
    * Im Semesterplan bleibt es bei einer Zeile pro Person.
    */
   exportAvailabilityCsv(): void {

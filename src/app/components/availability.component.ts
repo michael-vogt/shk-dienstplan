@@ -194,7 +194,7 @@ export class AvailabilityComponent {
     if (!weekCount) return;
 
     const ok = confirm(
-      `Verfügbarkeiten von ${assistant?.name ?? 'dieser Person'} aus der aktuell angezeigten ` +
+      `Verfügungszeiten von ${assistant?.name ?? 'dieser Person'} aus der aktuell angezeigten ` +
       `Woche auf alle ${weekCount} anderen Wochen übertragen? Bestehende Antworten dort ` +
       `werden dabei überschrieben.`,
     );
@@ -214,7 +214,7 @@ export class AvailabilityComponent {
   }
 
   remove(id: string, name: string): void {
-    if (confirm(name + ' entfernen? Verfügbarkeiten und Einteilungen gehen dabei verloren.')) {
+    if (confirm(name + ' entfernen? Verfügungszeiten und Einteilungen gehen dabei verloren.')) {
       this.store.removeAssistant(id);
     }
   }

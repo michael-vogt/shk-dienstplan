@@ -145,7 +145,7 @@ function migrateKeys(
 }
 
 /**
- * Hebt Verfügbarkeiten älterer Stände an. Bis v3 waren sie wochentagsbasiert
+ * Hebt Verfügungszeiten älterer Stände an. Bis v3 waren sie wochentagsbasiert
  * und galten für den ganzen Plan — das entspricht dem Semesterplan.
  */
 function migrateAvailability(
@@ -518,7 +518,7 @@ export class ScheduleStore {
     });
   }
 
-  /** Überträgt die Verfügbarkeiten einer Woche auf eine andere. */
+  /** Überträgt die Verfügungszeiten einer Woche auf eine andere. */
   copyAvailability(assistantId: string, source: WeekKey, target: WeekKey): number {
     if (source === target) return 0;
     let copied = 0;
@@ -721,7 +721,7 @@ export class ScheduleStore {
   }
 
   /**
-   * Wechselt den Plantyp. Verfügbarkeiten und Einteilung bleiben gespeichert,
+   * Wechselt den Plantyp. Verfügungszeiten und Einteilung bleiben gespeichert,
    * sind aber nur im jeweils passenden Modus sichtbar — der Wechsel ist damit
    * verlustfrei umkehrbar.
    */

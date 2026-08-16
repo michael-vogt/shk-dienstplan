@@ -877,7 +877,7 @@ describe('Migration älterer Stände', () => {
 });
 
 describe('Aufräumen beim Entfernen einer Hilfskraft', () => {
-  it('nimmt Verfügbarkeiten und Einteilungen mit', () => {
+  it('nimmt Verfügungszeiten und Einteilungen mit', () => {
     const store = makeStore(
       semester({
         availability: { a1: { 'semester|1-9': 'yes' } },

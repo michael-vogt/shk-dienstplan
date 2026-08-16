@@ -17,7 +17,7 @@ export const WEEKDAY_SHORT: Record<Weekday, string> = {
   5: 'Fr',
 };
 
-/** Antwortmöglichkeiten der Hilfskräfte auf die Verfügbarkeitsabfrage. */
+/** Antwortmöglichkeiten der Hilfskräfte auf die Verfügungszeitenabfrage. */
 export type Availability = 'yes' | 'ifNeeded' | 'no';
 
 export const AVAILABILITY_ORDER: Availability[] = ['yes', 'ifNeeded', 'no'];

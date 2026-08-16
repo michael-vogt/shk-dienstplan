@@ -19,7 +19,7 @@
       Dienstplan als CSV
     </button>
     <button type="button" class="ghost" (click)="exporter.exportAvailabilityCsv()">
-      Verfügbarkeiten als CSV
+      Verfügungszeiten als CSV
     </button>
     <button type="button" class="ghost" (click)="exporter.exportJson()">Daten sichern</button>
     <button type="button" class="ghost" (click)="fileInput.click()">Daten laden</button>
@@ -67,7 +67,7 @@
     [class.active]="step() === 'availability'"
     (click)="step.set('availability')"
   >
-    2 · Verfügbarkeiten
+    2 · Verfügungszeiten
   </button>
   <button type="button" [class.active]="step() === 'roster'" (click)="step.set('roster')">
     3 · Dienstplan

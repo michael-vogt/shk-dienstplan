@@ -44,7 +44,7 @@ details[open] summary {
   color: var(--muted);
 }
 
-/* Zustandsfarben 1:1 aus dem Verfügbarkeitsraster übernommen (eigene Kopie,
+/* Zustandsfarben 1:1 aus dem Verfügungszeitenraster übernommen (eigene Kopie,
    da Komponentenstile in Angular nicht über Komponentengrenzen hinweg
    gelten) — damit stimmt die Legende hier exakt mit der App überein. */
 .state-yes {

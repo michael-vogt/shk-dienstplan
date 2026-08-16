@@ -38,7 +38,7 @@ Ferienplan; der Typ wird in Schritt 1 gewählt.
 | --- | --- | --- |
 | Wochenpläne | genau einer | einer je Kalenderwoche |
 | Datumsbezug | keiner | Zeitraum von–bis |
-| Verfügbarkeiten | einmal, wiederkehrend gültig | je Woche einzeln |
+| Verfügungszeiten | einmal, wiederkehrend gültig | je Woche einzeln |
 | Einteilung | einmal für die Musterwoche | je Woche einzeln |
 
 Öffnungszeiten gelten in beiden Fällen je Wochentag und für alle Wochen gleich.
@@ -50,7 +50,7 @@ Ein Slot heißt `wochenschlüssel|wochentag-stunde`:
 - `semester|1-9` — Montag 9–10 Uhr in der Musterwoche
 - `2026-08-10|1-9` — Montag 9–10 Uhr in der Woche ab dem 10. August
 
-Beide Modi teilen sich damit dieselbe Struktur für Verfügbarkeiten und Einteilung; der
+Beide Modi teilen sich damit dieselbe Struktur für Verfügungszeiten und Einteilung; der
 Semesterplan ist schlicht der Sonderfall mit einem einzigen Wochenplan. Das Übertragen zwischen
 Wochen funktioniert deshalb über den zweiten Teil des Schlüssels, der die Stelle im Raster
 bezeichnet.
@@ -68,7 +68,7 @@ Wochenpläne übertragen (statt sie einzeln der Reihe nach auszuwählen). Das ü
 bestehende Antworten der gewählten Hilfskraft vollständig, deshalb erst nach einer ausdrücklichen
 Bestätigung.
 
-## Wochenübersicht in den Verfügbarkeiten
+## Wochenübersicht in den Verfügungszeiten
 
 Unterhalb der Bearbeitungsmatrix zeigt eine zweite, kompakte Tabelle je Slot die Zahl der
 Hilfskräfte mit „Ja" oder „Wenn es sein muss" — unabhängig davon, welche Person links gerade
@@ -80,7 +80,7 @@ schneller Blick darauf, welche Stunden dünn besetzt sind, bevor die Einteilung 
 
 Die App sendet zu keinem Zeitpunkt Daten über das Netzwerk — im gesamten Quellcode gibt es keinen
 `fetch`-, `XMLHttpRequest`- oder sonstigen HTTP-Aufruf zur Laufzeit. Alle Daten (Namen der
-Hilfskräfte, Verfügbarkeiten, Urlaub, Einteilung) bleiben ausschließlich lokal auf dem Gerät, auf
+Hilfskräfte, Verfügungszeiten, Urlaub, Einteilung) bleiben ausschließlich lokal auf dem Gerät, auf
 dem die App läuft. Das gilt unabhängig davon, ob `localStorage` oder eine verknüpfte Datei genutzt
 wird: auch `localStorage` verlässt den Rechner nie, sondern liegt browserintern als Datei auf der
 Festplatte.
@@ -137,7 +137,7 @@ leer bleibt).
 
 Urlaub ist ein **echter Blocker**, keine bloße Warnung: eine Zuweisung an einem Urlaubstag lässt
 sich über keinen der drei Wege — Klick, Blockmarkierung, Drag & Drop — herstellen. Betroffene
-Zellen im Verfügbarkeitsraster sind gesperrt und lassen sich nicht anklicken; im Dienstplan wird
+Zellen im Verfügungszeitenraster sind gesperrt und lassen sich nicht anklicken; im Dienstplan wird
 die Person in der Kandidatenliste ausgegraut angezeigt und ist nicht mehr ziehbar. Wird Urlaub
 eingetragen, während die Person bereits für einen Termin im betroffenen Zeitraum eingeteilt ist,
 wird diese Zuweisung automatisch entfernt.
@@ -186,7 +186,7 @@ sichtbaren Woche; die Zahl der übrigen steht daneben.
 - **Daten sichern / laden** — vollständiges JSON, wieder einlesbar. Damit lässt sich der Stand
   zwischen Rechnern übertragen oder ein Semester archivieren.
 - **Dienstplan als CSV** — Wochenraster plus Stundensumme je Hilfskraft.
-- **Verfügbarkeiten als CSV** — die Rohmatrix zur Kontrolle, samt Abwesenheiten.
+- **Verfügungszeiten als CSV** — die Rohmatrix zur Kontrolle, samt Abwesenheiten.
 
 Für den Aushang genügt `Strg+P`: gedruckt werden alle Wochenpläne, je eine Querseite, ohne
 Bedienelemente und Hinweise. Beim Semesterplan ist das genau eine Seite.
@@ -203,7 +203,7 @@ zum Semesterplan, ein Stand mit konkreten Terminen zum Ferienplan; die Schlüsse
 
 ## Nächste sinnvolle Schritte
 
-- Verfügbarkeitsabfrage als eigener Link für die Hilfskräfte, damit sie selbst eintragen — das
+- Verfügungszeitenabfrage als eigener Link für die Hilfskräfte, damit sie selbst eintragen — das
   braucht dann allerdings ein Backend
 - Signal Forms (seit v22 stabil) für die Eingabefelder, sobald dort Validierung nötig wird —
   aktuell sind es einzelne Inputs, da lohnt der Umbau noch nicht
