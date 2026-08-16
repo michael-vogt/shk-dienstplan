@@ -1,4 +1,4 @@
-import { Service, computed, effect, signal } from '@angular/core';
+import { Service, computed, effect, inject, signal } from '@angular/core';
 import {
   AVAILABILITY_ORDER,
   Availability,
@@ -27,6 +27,7 @@ import {
   weekdayOf,
   weekdaySlotKey,
 } from '../models/schedule.model';
+import { FileLinkService } from './file-link.service';
 
 const STORAGE_KEY = 'shk-dienstplan.v1';
 
@@ -640,15 +641,59 @@ export class ScheduleStore {
     );
   });
 
+  /**
+   * Öffentlich, damit die Oberfläche den Verknüpfungsstatus anzeigen kann
+   * (`fileLink.supported`, `fileLink.linkedFileName()`, `fileLink.writeError()`).
+   * Der Store selbst bleibt dadurch aber die einzige Stelle, die tatsächlich
+   * entscheidet, wann geschrieben wird.
+   */
+  readonly fileLink = inject(FileLinkService);
+
   constructor() {
     effect(() => {
       const snapshot = this._state();
+      const json = JSON.stringify(snapshot);
+      // localStorage bleibt immer die Absicherung — auch mit Dateiverknüpfung,
+      // falls deren Berechtigung zwischendurch entzogen wird oder der Browser
+      // die Programmierschnittstelle gar nicht unterstützt (Firefox, Safari).
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+        localStorage.setItem(STORAGE_KEY, json);
       } catch {
         // Speicher voll oder blockiert: Daten bleiben in der Sitzung erhalten.
       }
+      if (this.fileLink.isLinked) void this.fileLink.write(json);
     });
+
+    void this.restoreFileLink();
+  }
+
+  /**
+   * Stellt beim Start eine frühere Dateiverknüpfung wieder her und lädt,
+   * falls erfolgreich, deren Inhalt als maßgeblichen Zustand — die Datei ist
+   * dann die Quelle der Wahrheit, nicht mehr der localStorage-Zwischenstand,
+   * mit dem die App zuvor angezeigt wurde.
+   */
+  private async restoreFileLink(): Promise<void> {
+    await this.fileLink.restoreLink();
+    if (!this.fileLink.isLinked) return;
+    const content = await this.fileLink.read();
+    if (!content) return;
+    try {
+      this._state.set(normalizeState(JSON.parse(content)));
+    } catch {
+      // Datei beschädigt oder kein gültiges JSON: beim localStorage-Stand
+      // bleiben, statt eine kaputte Datei zu übernehmen.
+    }
+  }
+
+  /** Öffnet den Auswahldialog und schreibt den aktuellen Stand als erste Fassung. */
+  async linkFile(): Promise<boolean> {
+    const name = this._state().title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'dienstplan';
+    return this.fileLink.chooseFile(`${name}.json`, JSON.stringify(this._state(), null, 2));
+  }
+
+  unlinkFile(): void {
+    this.fileLink.unlink();
   }
 
   // --- Stammdaten -----------------------------------------------------------

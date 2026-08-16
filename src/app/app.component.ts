@@ -19,11 +19,11 @@ export class AppComponent {
   readonly step = signal<Step>('hours');
   readonly importError = signal<string | null>(null);
 
-  /** Erscheint nur im Ausdruck, dmit am Aushang steht, wie aktuell er ist. */
+  /** Erscheint nur im Ausdruck, damit am Aushang steht, wie aktuell er ist. */
   readonly today = new Date().toLocaleDateString('de-DE', {
     day: '2-digit',
     month: '2-digit',
-    year: 'numeric'
+    year: 'numeric',
   });
 
   setTitle(event: Event): void {
@@ -44,5 +44,11 @@ export class AppComponent {
     } finally {
       input.value = '';
     }
+  }
+
+  async linkFile(): Promise<void> {
+    // Kein Fehlerhinweis bei Abbruch — chooseFile() liefert dann nur `false`,
+    // ohne Unterschied zwischen „abgebrochen" und „schiefgelaufen" zu machen.
+    await this.store.linkFile();
   }
 }
